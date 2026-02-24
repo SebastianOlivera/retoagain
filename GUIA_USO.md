@@ -81,3 +81,13 @@ Aplicado en:
 - `h_dinamico_nivel_m`
 - `tau_s`
 - `C_const_ls`
+
+
+## 8) Script de prueba rápida por período
+```bash
+python run_periodic_pipeline.py --csv entrada.csv --out_csv salida_periodos.csv --days_per_period 2
+```
+
+
+## 9) Nota sobre tau enorme
+Si la curva de nivel del segmento ON es casi plana (baja identificabilidad), el ajuste puede devolver un `tau` muy grande. Esto es esperado físicamente y no se recorta de forma artificial.
