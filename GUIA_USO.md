@@ -1,47 +1,63 @@
 # Guía de uso del pipeline de procesamiento
 
-Esta guía explica cómo ejecutar el script principal para procesar todos los CSV raw de una carpeta y generar un CSV consolidado con parámetros.
+Este pipeline calcula por **pozo** y por **período o ciclo** las métricas clave:
 
-## 1) Requisitos de datos
-Cada CSV de entrada debe contener estas columnas:
+1. `h_static_nivel_m` (hs)
+2. `h_dinamico_nivel_m` (hd)
+3. `tau_off_s`
+4. `tau_on_s`
+5. `C_const_ls`
+6. métricas operativas: `frecuencia_encendido_por_dia` y `tiempo_on_prom_s`
 
-- `ts` (timestamp)
-- `caudal_ls` (caudal en L/s)
-- `nivel_m` (nivel en metros)
+## 1) Requisitos de entrada
+Cada CSV debe incluir:
 
-## 2) Ejecución básica
-Desde la raíz del repo:
+- `ts` (timestamp parseable)
+- `nivel_m` (float)
+- `caudal_ls` (float)
 
-```bash
-python main.py --input_dir /ruta/a/carpeta_raw --output_csv parametros_consolidados.csv
-```
+Opcional:
+- `estado_bomba` (0/1). Si no viene, se infiere por `caudal_ls > umbral_q`.
 
-## 3) Ejecución con opciones
+## 2) Ejecución por período (recomendado)
+
 ```bash
 python main.py \
-  --input_dir /ruta/a/carpeta_raw \
-  --output_csv parametros_consolidados.csv \
-  --errors_csv errores_procesamiento.csv \
-  --smooth_window 5 \
-  --min_threshold_ls 0.5 \
-  --min_cycle_points 5
+  --input_dir /ruta/a/raw_csv \
+  --output_csv metricas_periodo.csv \
+  --aggregate_mode period \
+  --period_days 2 \
+  --min_threshold_ls 0.05 \
+  --smooth_window 1
 ```
 
-## 4) Qué genera
-
-- `parametros_consolidados.csv`: una fila por archivo procesado con métricas operativas e hidrogeológicas.
-- `errores_procesamiento.csv` (opcional): archivos que no pudieron procesarse y motivo.
-
-## 5) Campos principales de salida
-
-- Operacionales: `duty_cycle_pct`, `freq_cycles_day`, `avg_cycle_duration_min`, `typical_flow_ls`, `flow_stability_std`, `vol_total_m3`
-- Hidrogeológicos: `h_static_mean_m`, `h_dinamico_mean_m`, `k_mean_m2_s`, `A_mean_m2`
-- Clasificación: `regime_label`, `dynamic_threshold_used`
-- Metadatos: `archivo_origen`, `fecha_inicio`, `fecha_fin`, `n_muestras`, `n_ciclos`
-
-## 6) Script alternativo de periodos
-Si necesitas agregación por periodos fijos:
+## 3) Ejecución por ciclo
 
 ```bash
-python cycle_analysis.py --csv entrada.csv --out_periods_csv periodos.csv --out_summary_csv resumen.csv
+python main.py \
+  --input_dir /ruta/a/raw_csv \
+  --output_csv metricas_ciclo.csv \
+  --aggregate_mode cycle \
+  --min_threshold_ls 0.05
 ```
+
+## 4) Cómo se calculan
+- Segmentación ON/OFF por estados contiguos.
+- Ajuste por segmento con modelo exponencial:
+  `h(t)=h_inf + (h0-h_inf)*exp(-t/tau)`.
+- OFF: `h_inf -> hs`, `tau -> tau_off_s`.
+- ON: `h_inf -> hd`, `tau -> tau_on_s`, `C_const_ls -> mediana(caudal)` del segmento ON.
+- Si el ajuste no es confiable (segmento corto/plano/no converge):
+  - `h_inf` se estima robustamente con mediana del tramo final,
+  - `tau` queda `NaN`,
+  - se reporta `ok_fit=False` a nivel segmento (resumido en `ok_on`, `ok_off`).
+
+## 5) Campos de salida por período
+- `device_id`, `periodo`, `inicio`, `fin`, `n_on`
+- `h_static_nivel_m`, `h_dinamico_nivel_m`, `tau_off_s`, `tau_on_s`, `C_const_ls`
+- `frecuencia_encendido_por_dia`, `tiempo_on_prom_s`
+- opcionales de dispersión/calidad: `hs_std`, `hd_std`, `tau_off_std`, `tau_on_std`, `C_std`, `rmse_*`, `r2_*`, `ok_*`
+
+## 6) Archivos generados
+- `output_csv`: métricas consolidadas.
+- `errors_csv` (si aplica): archivos no procesados + motivo.

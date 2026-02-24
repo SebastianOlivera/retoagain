@@ -1,3 +1,3 @@
-from .profiler import WellProfiler
+from .profiler import FitResult, WellProfiler
 
-__all__ = ["WellProfiler"]
+__all__ = ["FitResult", "WellProfiler"]

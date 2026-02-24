@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -10,7 +10,7 @@ from scipy.optimize import least_squares
 
 @dataclass
 class FitResult:
-    y_inf: float
+    h_inf: float
     tau_s: float
     rmse: float
     r2: float
@@ -18,243 +18,284 @@ class FitResult:
 
 
 class WellProfiler:
-    """Analiza ciclos de bombeo y calcula parámetros operativos e hidrogeológicos."""
+    """Perfilador de pozo con métricas por segmento, ciclo y período."""
 
-    def __init__(self, min_cycle_points: int = 5, smooth_window: int = 5) -> None:
-        self.min_cycle_points = min_cycle_points
+    def __init__(self, min_segment_points: int = 5, smooth_window: int = 1, flat_std_eps: float = 1e-6) -> None:
+        self.min_segment_points = min_segment_points
         self.smooth_window = smooth_window
+        self.flat_std_eps = flat_std_eps
         self.df: Optional[pd.DataFrame] = None
-        self.cycles_df: Optional[pd.DataFrame] = None
-        self.stats: Dict[str, float | int | str | bool | None] = {}
-        self.regime = "Desconocido"
-        self.threshold = 0.5
-        self.depth_like = False
+        self.threshold: float = 0.05
+        self.segments_df: Optional[pd.DataFrame] = None
+        self.segment_metrics_df: Optional[pd.DataFrame] = None
 
     @classmethod
     def from_dataframe(
         cls,
         df: pd.DataFrame,
-        threshold: float,
-        min_cycle_points: int = 5,
-        smooth_window: int = 5,
+        threshold: float = 0.05,
+        min_segment_points: int = 5,
+        smooth_window: int = 1,
     ) -> "WellProfiler":
-        instance = cls(min_cycle_points=min_cycle_points, smooth_window=smooth_window)
-        instance.threshold = threshold
-        instance.df = df.copy()
-        instance.df["pump_on"] = instance.df["caudal_ls"] > threshold
-        instance._prepare_level_column()
+        instance = cls(min_segment_points=min_segment_points, smooth_window=smooth_window)
+        instance.threshold = float(threshold)
+        instance.df = instance._prepare_dataframe(df)
         return instance
 
+    def _prepare_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+        required = {"ts", "nivel_m", "caudal_ls"}
+        if not required.issubset(df.columns):
+            raise ValueError(f"Faltan columnas requeridas: {sorted(required)}")
+
+        dfx = df.copy()
+        dfx["ts"] = pd.to_datetime(dfx["ts"], errors="coerce", utc=True)
+        dfx["nivel_m"] = pd.to_numeric(dfx["nivel_m"], errors="coerce")
+        dfx["caudal_ls"] = pd.to_numeric(dfx["caudal_ls"], errors="coerce")
+        dfx = dfx.dropna(subset=["ts", "nivel_m", "caudal_ls"]).sort_values("ts").reset_index(drop=True)
+
+        if dfx.empty:
+            raise ValueError("No hay datos válidos tras limpieza")
+
+        if "estado_bomba" in dfx.columns:
+            dfx["state"] = pd.to_numeric(dfx["estado_bomba"], errors="coerce").fillna(0).astype(int).clip(0, 1)
+        else:
+            dfx["state"] = (dfx["caudal_ls"] > self.threshold).astype(int)
+
+        if self.smooth_window > 1:
+            dfx["nivel_use"] = dfx["nivel_m"].rolling(self.smooth_window, center=True, min_periods=1).median()
+            dfx["caudal_use"] = dfx["caudal_ls"].rolling(self.smooth_window, center=True, min_periods=1).median()
+        else:
+            dfx["nivel_use"] = dfx["nivel_m"]
+            dfx["caudal_use"] = dfx["caudal_ls"]
+
+        return dfx
+
     @staticmethod
-    def _detect_depth_like(nivel: np.ndarray, pump_on: np.ndarray) -> bool:
-        if pump_on.sum() < 10 or (~pump_on).sum() < 10:
-            return False
-        return bool(np.nanmedian(nivel[pump_on]) > np.nanmedian(nivel[~pump_on]))
+    def _std_ddof1_zero(values: np.ndarray) -> float:
+        vals = values[np.isfinite(values)]
+        if len(vals) < 2:
+            return 0.0
+        return float(np.std(vals, ddof=1))
 
-    def _prepare_level_column(self) -> None:
-        assert self.df is not None
-        self.df["nivel_f"] = self.df["nivel_m"].rolling(
-            window=self.smooth_window, center=True, min_periods=1
-        ).median()
-        self.depth_like = self._detect_depth_like(
-            self.df["nivel_f"].to_numpy(float),
-            self.df["pump_on"].to_numpy(bool),
-        )
-        self.df["h"] = -self.df["nivel_f"] if self.depth_like else self.df["nivel_f"]
-
-    @staticmethod
-    def _fit_exp(t: np.ndarray, y: np.ndarray) -> FitResult:
-        t = np.asarray(t, dtype=float)
-        y = np.asarray(y, dtype=float)
-
-        valid = np.isfinite(t) & np.isfinite(y)
-        t, y = t[valid], y[valid]
-        if len(t) < 3:
-            return FitResult(np.nan, np.nan, np.nan, np.nan, False)
-
-        y0 = float(y[0])
-        y_inf0 = float(np.nanmedian(y[-max(3, len(y) // 5) :]))
-        tau0 = max(float(t[-1] - t[0]) / 3.0, 1.0)
-        x0 = np.array([y_inf0, np.log(tau0)])
-
-        ymin, ymax = float(np.nanmin(y)), float(np.nanmax(y))
-        rng = abs(ymax - ymin) + 1e-6
-        lb = np.array([ymin - 10 * rng, np.log(1e-3)])
-        ub = np.array([ymax + 10 * rng, np.log(1e9)])
-
-        def residuals(x: np.ndarray) -> np.ndarray:
-            y_inf, logtau = x
-            return y - (y_inf + (y0 - y_inf) * np.exp(-(t - t[0]) / np.exp(logtau)))
-
-        try:
-            res = least_squares(residuals, x0, bounds=(lb, ub), loss="huber", max_nfev=10000)
-            y_inf_fit = float(res.x[0])
-            tau_fit = float(np.exp(res.x[1]))
-            r = residuals(res.x)
-            rmse = float(np.sqrt(np.mean(r**2)))
-            ss_tot = float(np.sum((y - np.mean(y)) ** 2))
-            r2 = float(1 - np.sum(r**2) / ss_tot) if ss_tot > 0 else float("nan")
-            return FitResult(y_inf_fit, tau_fit, rmse, r2, bool(res.success))
-        except Exception:
-            return FitResult(np.nan, np.nan, np.nan, np.nan, False)
-
-    def extract_cycles(self) -> None:
+    def extract_segments(self) -> pd.DataFrame:
         if self.df is None:
-            raise ValueError("El DataFrame no está cargado")
+            raise ValueError("DataFrame no cargado")
 
-        df = self.df.copy()
-        df["change"] = df["pump_on"].astype(int).diff().fillna(0)
-        starts = df[df["change"] == 1].index.tolist()
-        if not df.empty and bool(df["pump_on"].iloc[0]):
-            starts = [int(df.index[0])] + starts
+        dfx = self.df
+        segments = []
+        start = 0
+        current = int(dfx.loc[0, "state"])
 
-        cycles_data = []
+        for idx in range(1, len(dfx)):
+            st = int(dfx.loc[idx, "state"])
+            if st != current:
+                segments.append((start, idx - 1, current))
+                start = idx
+                current = st
+        segments.append((start, len(dfx) - 1, current))
 
-        for start_idx in starts:
-            ends = df[(df.index > start_idx) & (df["change"] == -1)].index
-            if len(ends) == 0:
-                end_idx = int(df.index[-1]) + 1
-            else:
-                end_idx = int(ends[0])
-
-            on_window = df.loc[start_idx : end_idx - 1]
-            if len(on_window) < self.min_cycle_points:
-                continue
-
-            q = on_window["caudal_ls"]
-            duration_min = (on_window["ts"].iloc[-1] - on_window["ts"].iloc[0]).total_seconds() / 60.0
-
-            dt_arr = on_window["ts"].diff().dt.total_seconds().to_numpy()
-            if len(dt_arr) > 1:
-                dt_arr[0] = float(np.nanmedian(dt_arr[1:]))
-            else:
-                dt_arr[0] = 0.0
-            vol_m3 = float(np.nansum((q.to_numpy() / 1000.0) * np.nan_to_num(dt_arr)))
-
-            t_on = (on_window["ts"] - on_window["ts"].iloc[0]).dt.total_seconds().to_numpy(float)
-            fit_on = self._fit_exp(t_on, on_window["h"].to_numpy(float))
-            h_d_nivel = -fit_on.y_inf if self.depth_like else fit_on.y_inf
-
-            prev_offs = df[(df.index < start_idx) & (df["change"] == -1)].index
-            off_start_idx = int(prev_offs[-1]) if len(prev_offs) > 0 else int(df.index[0])
-            off_window = df.loc[off_start_idx : start_idx - 1]
-
-            h_static_nivel = np.nan
-            fit_off = FitResult(np.nan, np.nan, np.nan, np.nan, False)
-            k = np.nan
-            A = np.nan
-
-            if len(off_window) >= self.min_cycle_points:
-                t_off = (off_window["ts"] - off_window["ts"].iloc[0]).dt.total_seconds().to_numpy(float)
-                fit_off = self._fit_exp(t_off, off_window["h"].to_numpy(float))
-                h_static_nivel = -fit_off.y_inf if self.depth_like else fit_off.y_inf
-
-                q_m3s = float(q.median()) / 1000.0
-                delta_h = fit_off.y_inf - fit_on.y_inf
-                if np.isfinite(delta_h) and delta_h > 0 and q_m3s > 0:
-                    k = float(q_m3s / delta_h)
-                    tau_use = fit_off.tau_s if (fit_off.ok and np.isfinite(fit_off.tau_s)) else fit_on.tau_s
-                    if np.isfinite(tau_use) and tau_use > 0:
-                        A = float(tau_use * k)
-
-            cycles_data.append(
+        rows = []
+        for seg_id, (s, e, is_on) in enumerate(segments, start=1):
+            part = dfx.loc[s:e]
+            rows.append(
                 {
-                    "start_ts": on_window["ts"].iloc[0],
-                    "duration_min": duration_min,
-                    "q_median": q.median(),
-                    "q_std": q.std(),
-                    "h_median": on_window["nivel_m"].median(),
-                    "h_static_m": h_static_nivel,
-                    "h_dinamico_m": h_d_nivel,
-                    "tau_off_s": fit_off.tau_s,
-                    "tau_on_s": fit_on.tau_s,
-                    "volumen_bombeado_m3": vol_m3,
-                    "k_m2_s": k,
-                    "A_m2": A,
-                    "rmse_off": fit_off.rmse,
-                    "r2_off": fit_off.r2,
-                    "rmse_on": fit_on.rmse,
-                    "r2_on": fit_on.r2,
-                    "ok_off": fit_off.ok,
-                    "ok_on": fit_on.ok,
+                    "segment_id": seg_id,
+                    "start_idx": int(s),
+                    "end_idx": int(e),
+                    "is_on": int(is_on),
+                    "inicio": part["ts"].iloc[0],
+                    "fin": part["ts"].iloc[-1],
+                    "h0": float(part["nivel_use"].iloc[0]),
+                    "n_points": int(len(part)),
+                    "duracion_s": float((part["ts"].iloc[-1] - part["ts"].iloc[0]).total_seconds()),
                 }
             )
 
-        self.cycles_df = pd.DataFrame(cycles_data)
+        self.segments_df = pd.DataFrame(rows)
+        return self.segments_df
 
-    def compute_global_metrics(self) -> None:
+    @staticmethod
+    def _tail_median(values: np.ndarray, tail_ratio: float = 0.2) -> float:
+        vals = values[np.isfinite(values)]
+        if len(vals) == 0:
+            return np.nan
+        n_tail = max(3, int(np.ceil(len(vals) * tail_ratio)))
+        return float(np.nanmedian(vals[-n_tail:]))
+
+    def _fit_segment(self, t_rel_s: np.ndarray, h: np.ndarray) -> FitResult:
+        valid = np.isfinite(t_rel_s) & np.isfinite(h)
+        t = t_rel_s[valid]
+        y = h[valid]
+        if len(y) < self.min_segment_points or float(np.nanstd(y)) <= self.flat_std_eps:
+            return FitResult(self._tail_median(y), np.nan, np.nan, np.nan, False)
+
+        h0 = float(y[0])
+        h_inf0 = self._tail_median(y)
+        tau0 = max(float(t[-1] - t[0]) / 3.0, 1.0)
+        x0 = np.array([h_inf0, np.log(tau0)])
+
+        p5, p95 = np.nanpercentile(y, [5, 95])
+        margin = max(0.1, abs(p95 - p5) * 2.0)
+        lb = np.array([p5 - margin, np.log(1.0)])
+        ub = np.array([p95 + margin, np.log(1e9)])
+
+        def residuals(x: np.ndarray) -> np.ndarray:
+            h_inf, logtau = x
+            tau = np.exp(logtau)
+            return y - (h_inf + (h0 - h_inf) * np.exp(-(t - t[0]) / tau))
+
+        try:
+            res = least_squares(residuals, x0, bounds=(lb, ub), loss="huber", max_nfev=10000)
+            h_inf = float(res.x[0])
+            tau = float(np.exp(res.x[1]))
+            r = residuals(res.x)
+            rmse = float(np.sqrt(np.mean(r**2)))
+            ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+            r2 = float(1 - np.sum(r**2) / ss_tot) if ss_tot > 0 else np.nan
+            ok = bool(res.success) and np.isfinite(rmse)
+            if ok:
+                return FitResult(h_inf, tau, rmse, r2, True)
+            return FitResult(self._tail_median(y), np.nan, rmse, r2, False)
+        except Exception:
+            return FitResult(self._tail_median(y), np.nan, np.nan, np.nan, False)
+
+    def compute_segment_metrics(self) -> pd.DataFrame:
         if self.df is None:
-            raise ValueError("El DataFrame no está cargado")
+            raise ValueError("DataFrame no cargado")
+        if self.segments_df is None:
+            self.extract_segments()
 
-        t_total_days = (self.df["ts"].max() - self.df["ts"].min()).total_seconds() / 86400
-        t_total_days = max(t_total_days, 1e-6)
+        rows = []
+        assert self.segments_df is not None
 
-        if self.cycles_df is not None and not self.cycles_df.empty:
-            total_cycles = len(self.cycles_df)
-            freq_cycles_day = total_cycles / t_total_days
-            avg_duration = self.cycles_df["duration_min"].mean()
-            median_q = self.cycles_df["q_median"].median()
-            variability_q = self.cycles_df["q_std"].mean()
-            total_on_minutes = self.cycles_df["duration_min"].sum()
-            duty_cycle_pct = (total_on_minutes / (t_total_days * 1440)) * 100
+        for _, seg in self.segments_df.iterrows():
+            part = self.df.loc[int(seg["start_idx"]) : int(seg["end_idx"])].copy()
+            t_rel_s = (part["ts"] - part["ts"].iloc[0]).dt.total_seconds().to_numpy(float)
+            h = part["nivel_use"].to_numpy(float)
+            fit = self._fit_segment(t_rel_s, h)
 
-            vol_total_m3 = float(self.cycles_df["volumen_bombeado_m3"].sum())
-            h_static_mean = float(np.nanmean(self.cycles_df["h_static_m"]))
-            h_d_mean = float(np.nanmean(self.cycles_df["h_dinamico_m"]))
-            k_mean = float(np.nanmean(self.cycles_df["k_m2_s"]))
-            A_mean = float(np.nanmean(self.cycles_df["A_m2"]))
-        else:
-            if self.df["pump_on"].mean() > 0.95:
-                duty_cycle_pct = 100.0
-                freq_cycles_day = 0.0
-                avg_duration = t_total_days * 1440
-                median_q = self.df["caudal_ls"].median()
-                variability_q = self.df["caudal_ls"].std()
-            else:
-                duty_cycle_pct = 0.0
-                freq_cycles_day = 0.0
-                avg_duration = 0.0
-                median_q = 0.0
-                variability_q = 0.0
+            row = {
+                "segment_id": int(seg["segment_id"]),
+                "is_on": int(seg["is_on"]),
+                "inicio": seg["inicio"],
+                "fin": seg["fin"],
+                "n_points": int(seg["n_points"]),
+                "duracion_s": float(seg["duracion_s"]),
+                "ok_fit": bool(fit.ok),
+                "rmse": fit.rmse,
+                "r2": fit.r2,
+                "h_inf_nivel_m": fit.h_inf,
+                "tau_s": fit.tau_s,
+                "C_const_ls": float(np.nanmedian(part["caudal_use"].to_numpy(float))) if int(seg["is_on"]) == 1 else np.nan,
+            }
+            rows.append(row)
 
-            vol_total_m3 = 0.0
-            h_static_mean = np.nan
-            h_d_mean = np.nan
-            k_mean = np.nan
-            A_mean = np.nan
+        self.segment_metrics_df = pd.DataFrame(rows)
+        return self.segment_metrics_df
 
-        def _safe_round(v: float, decimals: int) -> Optional[float]:
-            return round(float(v), decimals) if np.isfinite(v) else None
+    def build_cycle_table(self, device_id: str = "") -> pd.DataFrame:
+        if self.segment_metrics_df is None:
+            self.compute_segment_metrics()
+        assert self.segment_metrics_df is not None
 
-        self.stats = {
-            "duty_cycle_pct": round(float(duty_cycle_pct), 2),
-            "freq_cycles_day": round(float(freq_cycles_day), 2),
-            "avg_cycle_duration_min": round(float(avg_duration), 1),
-            "typical_flow_ls": round(float(median_q), 2),
-            "flow_stability_std": round(float(variability_q), 2),
-            "vol_total_m3": round(float(vol_total_m3), 3),
-            "h_static_mean_m": _safe_round(h_static_mean, 3),
-            "h_dinamico_mean_m": _safe_round(h_d_mean, 3),
-            "k_mean_m2_s": _safe_round(k_mean, 6),
-            "A_mean_m2": _safe_round(A_mean, 3),
-            "nivel_es_profundidad": self.depth_like,
-            "dynamic_threshold_used": round(float(self.threshold), 3),
-        }
+        seg = self.segment_metrics_df.reset_index(drop=True)
+        on_idx = seg.index[seg["is_on"] == 1].tolist()
+        rows = []
 
-    def classify_regime(self) -> None:
-        s = self.stats
-        if float(s["duty_cycle_pct"]) > 98.0:
-            self.regime = "Siempre ON"
-        elif float(s["duty_cycle_pct"]) < 1.0:
-            self.regime = "Siempre OFF"
-        elif float(s["freq_cycles_day"]) > 10:
-            self.regime = "Mixto Pulso"
-        elif float(s["avg_cycle_duration_min"]) > 360:
-            self.regime = "Mixto Largo"
-        else:
-            self.regime = "Mixto Medio"
+        for cyc_id, idx in enumerate(on_idx, start=1):
+            on = seg.loc[idx]
+            off_prev = seg.loc[idx - 1] if idx - 1 >= 0 and int(seg.loc[idx - 1, "is_on"]) == 0 else None
+            off_next = seg.loc[idx + 1] if idx + 1 < len(seg) and int(seg.loc[idx + 1, "is_on"]) == 0 else None
 
-    def get_features(self) -> Dict[str, float | int | str | bool | None]:
-        features = dict(self.stats)
-        features["regime_label"] = self.regime
-        return features
+            hs_candidates = []
+            tau_off_candidates = []
+            for off in (off_prev, off_next):
+                if off is not None:
+                    hs_candidates.append(float(off["h_inf_nivel_m"]))
+                    tau_off_candidates.append(float(off["tau_s"]))
+
+            hs = float(np.nanmedian(hs_candidates)) if len(hs_candidates) else np.nan
+            tau_off = float(np.nanmedian(tau_off_candidates)) if len(tau_off_candidates) else np.nan
+
+            rows.append(
+                {
+                    "device_id": device_id,
+                    "ciclo_id": cyc_id,
+                    "inicio": on["inicio"],
+                    "fin": on["fin"],
+                    "h_static_nivel_m": hs,
+                    "h_dinamico_nivel_m": float(on["h_inf_nivel_m"]),
+                    "tau_off_s": tau_off,
+                    "tau_on_s": float(on["tau_s"]),
+                    "C_const_ls": float(on["C_const_ls"]),
+                    "tiempo_on_prom_s": float(on["duracion_s"]),
+                    "ok_on": bool(on["ok_fit"]),
+                    "rmse_on": float(on["rmse"]) if np.isfinite(on["rmse"]) else np.nan,
+                    "r2_on": float(on["r2"]) if np.isfinite(on["r2"]) else np.nan,
+                }
+            )
+
+        return pd.DataFrame(rows)
+
+    def aggregate_periods(self, period_days: float = 2.0, device_id: str = "") -> pd.DataFrame:
+        if period_days <= 0:
+            raise ValueError("period_days debe ser > 0")
+        if self.df is None:
+            raise ValueError("DataFrame no cargado")
+        if self.segment_metrics_df is None:
+            self.compute_segment_metrics()
+        assert self.segment_metrics_df is not None
+
+        seg = self.segment_metrics_df.copy()
+        seg["inicio"] = pd.to_datetime(seg["inicio"], utc=True)
+        start_ts = self.df["ts"].min()
+        period_s = period_days * 86400.0
+        seg["periodo"] = (((seg["inicio"] - start_ts).dt.total_seconds()) // period_s).astype(int) + 1
+
+        period_rows = []
+        for periodo, part in seg.groupby("periodo", sort=True):
+            on = part[part["is_on"] == 1]
+            off = part[part["is_on"] == 0]
+
+            inicio = part["inicio"].min()
+            fin = part["fin"].max()
+            dur_days = max((fin - inicio).total_seconds() / 86400.0, period_days)
+            n_on = int(len(on))
+            freq = float(n_on / dur_days) if dur_days > 0 else 0.0
+
+            hs_vals = off["h_inf_nivel_m"].to_numpy(float)
+            hd_vals = on["h_inf_nivel_m"].to_numpy(float)
+            tau_off_vals = off["tau_s"].to_numpy(float)
+            tau_on_vals = on["tau_s"].to_numpy(float)
+            c_vals = on["C_const_ls"].to_numpy(float)
+            on_dur_vals = on["duracion_s"].to_numpy(float)
+
+            period_rows.append(
+                {
+                    "device_id": device_id,
+                    "periodo": int(periodo),
+                    "inicio": inicio,
+                    "fin": fin,
+                    "n_on": n_on,
+                    "h_static_nivel_m": float(np.nanmedian(hs_vals)) if len(hs_vals) else np.nan,
+                    "h_dinamico_nivel_m": float(np.nanmedian(hd_vals)) if len(hd_vals) else np.nan,
+                    "tau_off_s": float(np.nanmedian(tau_off_vals)) if len(tau_off_vals) else np.nan,
+                    "tau_on_s": float(np.nanmedian(tau_on_vals)) if len(tau_on_vals) else np.nan,
+                    "C_const_ls": float(np.nanmedian(c_vals)) if len(c_vals) else np.nan,
+                    "frecuencia_encendido_por_dia": freq,
+                    "tiempo_on_prom_s": float(np.nanmean(on_dur_vals)) if len(on_dur_vals) else np.nan,
+                    "hs_std": self._std_ddof1_zero(hs_vals),
+                    "hd_std": self._std_ddof1_zero(hd_vals),
+                    "tau_off_std": self._std_ddof1_zero(tau_off_vals),
+                    "tau_on_std": self._std_ddof1_zero(tau_on_vals),
+                    "C_std": self._std_ddof1_zero(c_vals),
+                    "rmse_on": float(np.nanmean(on["rmse"].to_numpy(float))) if len(on) else np.nan,
+                    "r2_on": float(np.nanmean(on["r2"].to_numpy(float))) if len(on) else np.nan,
+                    "ok_on": float(np.nanmean(on["ok_fit"].to_numpy(float))) if len(on) else np.nan,
+                    "rmse_off": float(np.nanmean(off["rmse"].to_numpy(float))) if len(off) else np.nan,
+                    "r2_off": float(np.nanmean(off["r2"].to_numpy(float))) if len(off) else np.nan,
+                    "ok_off": float(np.nanmean(off["ok_fit"].to_numpy(float))) if len(off) else np.nan,
+                }
+            )
+
+        return pd.DataFrame(period_rows)
