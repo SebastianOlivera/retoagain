@@ -147,6 +147,14 @@ def compute_period_metrics(
 
     periods_df = pd.DataFrame(rows)
 
+    # Normalización defensiva por compatibilidad con nombres legacy
+    periods_df = periods_df.rename(columns={
+        "h_static_nivel_m": "h_static_nivel_median",
+        "h_dinamico_nivel_m": "h_dinamico_nivel_median",
+        "tau_s": "tau_s_median",
+        "C_const_ls": "C_const_ls_median",
+    })
+
     desired_order = [
         "device_id", "periodo", "inicio", "fin",
         "n_on", "frecuencia_encendido_por_dia", "tiempo_on_prom_s",

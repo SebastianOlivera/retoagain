@@ -2,10 +2,10 @@
 
 Este pipeline calcula por **pozo** y por **período o ciclo** las métricas clave con **tau global compartido**:
 
-1. `h_static_nivel_m` (hs)
-2. `h_dinamico_nivel_m` (hd)
-3. `tau_s` (único global)
-4. `C_const_ls`
+1. `h_static_nivel_median` (hs mediana)
+2. `h_dinamico_nivel_median` (hd mediana)
+3. `tau_s_median`
+4. `C_const_ls_median`
 5. `frecuencia_encendido_por_dia`
 6. `tiempo_on_prom_s`
 
