@@ -5,7 +5,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from pozos.analysis.fitting import fit_period_cycles
+from pozos.analysis.ajuste_fisico import fit_period_cycles
 
 
 def robust_median_smooth(series: pd.Series, window: int) -> pd.Series:

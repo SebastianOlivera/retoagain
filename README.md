@@ -1,15 +1,18 @@
 # Flujo activo del proyecto
 
-Este repositorio quedó **limpio** y centrado en un único flujo vigente:
+Nombres de archivos alineados al propósito:
 
-- `run_periodic_pipeline.py`: script principal para generar métricas por períodos (2 días por defecto).
-- `pozos/analysis/fitting.py`: fitting físico por segmento ON y agregación por período.
-- `pozos/analysis/periodic.py`: construcción de la tabla final por período con columnas objetivo.
+- `ejecutar_metricas_periodicas.py`: script principal para generar métricas por período (2 días por defecto).
+- `pozos/analysis/ajuste_fisico.py`: ajuste físico por segmentos ON y agregación de calidad de ajuste.
+- `pozos/analysis/metricas_por_periodo.py`: construcción de la tabla final por períodos.
+- `pozos/analysis/metricas_basicas.py`: utilidades básicas de series temporales.
+- `pozos/analysis/visualizacion.py`: funciones de visualización.
+- `pozos/cli_metricas.py`: entrypoint CLI equivalente.
 
 ## Uso
 
 ```bash
-python run_periodic_pipeline.py --csv entrada.csv --out_csv salida_periodos.csv --days_per_period 2
+python ejecutar_metricas_periodicas.py --csv entrada.csv --out_csv salida_periodos.csv --days_per_period 2
 ```
 
 También podés usar:

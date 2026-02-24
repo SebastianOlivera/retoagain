@@ -1,1 +1,1 @@
-"""Paquete principal del flujo actual de cálculo por períodos."""
+"""Paquete principal del flujo periódico de métricas de pozos."""

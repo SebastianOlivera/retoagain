@@ -1,5 +1,5 @@
-from .fitting import fit_period_cycles, fit_tau_hd_by_segment
-from .periodic import compute_period_metrics
+from .ajuste_fisico import fit_period_cycles, fit_tau_hd_by_segment
+from .metricas_por_periodo import compute_period_metrics
 
 __all__ = [
     "fit_tau_hd_by_segment",

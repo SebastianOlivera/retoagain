@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from pozos.analysis.periodic import compute_period_metrics
+from pozos.analysis.metricas_por_periodo import compute_period_metrics
 
 
 def main() -> None:

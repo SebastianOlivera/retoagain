@@ -22,22 +22,13 @@ Opcional:
 ## 2) Ejecución por período (recomendado)
 
 ```bash
-python main.py \
-  --input_dir /ruta/a/raw_csv \
-  --output_csv metricas_periodo.csv \
-  --aggregate_mode period \
-  --period_days 2 \
-  --min_threshold_ls 0.05
+python ejecutar_metricas_periodicas.py --csv entrada.csv --out_csv salida_periodos.csv --days_per_period 2
 ```
 
 ## 3) Ejecución por ciclo
 
 ```bash
-python main.py \
-  --input_dir /ruta/a/raw_csv \
-  --output_csv metricas_ciclo.csv \
-  --aggregate_mode cycle \
-  --min_threshold_ls 0.05
+(El flujo actual está enfocado en métricas por período).
 ```
 
 ## 4) Ajuste global de tau
@@ -85,7 +76,7 @@ Aplicado en:
 
 ## 8) Script de prueba rápida por período
 ```bash
-python run_periodic_pipeline.py --csv entrada.csv --out_csv salida_periodos.csv --days_per_period 2
+python ejecutar_metricas_periodicas.py --csv entrada.csv --out_csv salida_periodos.csv --days_per_period 2
 ```
 
 
