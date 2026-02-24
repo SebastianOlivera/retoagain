@@ -122,20 +122,24 @@ def process_folder(
 def finalize_output_df(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
 
+    numeric_name_targets = {
+        "tau_s",
+        "h_static_nivel_m",
+        "h_dinamico_nivel_m",
+        "C_const_ls",
+        "frecuencia_encendido_por_dia",
+        "tiempo_on_prom_s",
+    }
+
     for col in out.columns:
-        if (
+        should_cast = (
             col.endswith("_mean")
             or col.endswith("_std")
             or col.endswith("_n")
-            or col in [
-                "tau_s",
-                "h_static_nivel_m",
-                "h_dinamico_nivel_m",
-                "C_const_ls",
-                "frecuencia_encendido_por_dia",
-                "tiempo_on_prom_s",
-            ]
-        ):
+            or col in numeric_name_targets
+            or pd.api.types.is_numeric_dtype(out[col])
+        )
+        if should_cast:
             out[col] = pd.to_numeric(out[col], errors="coerce")
 
     for col in out.columns:
@@ -183,7 +187,12 @@ def main() -> None:
     )
     errors_df = df.attrs.get("errors_df")
     df = finalize_output_df(df)
-    df.to_csv(args.output_csv, index=False, float_format="%.6f")
+    df.to_csv(
+        args.output_csv,
+        index=False,
+        float_format="%.2f",
+        decimal=".",
+    )
     if isinstance(errors_df, pd.DataFrame) and not errors_df.empty:
         errors_df.to_csv(args.errors_csv, index=False)
         print(f"Proceso completado con advertencias. Métricas: {args.output_csv}. Errores: {args.errors_csv}")
