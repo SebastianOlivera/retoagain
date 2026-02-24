@@ -27,7 +27,6 @@ def _compute_stats(values: Any) -> dict[str, float | int]:
 def _add_stats_cols(row: dict[str, Any], base_name: str, values: Any) -> None:
     st = _compute_stats(values)
     row[base_name] = st["median"]
-    row[f"{base_name}_median"] = st["median"]
     row[f"{base_name}_mean"] = st["mean"]
     row[f"{base_name}_std"] = st["std"]
     row[f"{base_name}_n"] = int(st["n"])
@@ -137,16 +136,11 @@ def compute_period_metrics(
         _add_stats_cols(row, "C_const_ls", c_values)
 
         # Convención de salida: columna base = mediana
-        row["h_static_nivel_m"] = row["h_static_nivel_m_median"]
-        row["h_dinamico_nivel_m"] = row["h_dinamico_nivel_m_median"]
-        row["C_const_ls"] = row["C_const_ls_median"]
-
         tau_values = np.asarray(fit.get("tau_values", []), dtype=float)
         tau_values = tau_values[np.isfinite(tau_values)]
         tau_median = float(np.median(tau_values)) if len(tau_values) else np.nan
         tau_mean = float(fit["tau_s_mean"]) if np.isfinite(fit["tau_s_mean"]) else np.nan
         row["tau_s"] = tau_median
-        row["tau_s_median"] = tau_median
         row["tau_s_mean"] = tau_mean
         row["tau_s_std"] = float(fit["tau_s_std"]) if np.isfinite(fit["tau_s_std"]) else np.nan
         row["tau_s_n"] = int(fit["tau_s_n"])
@@ -160,10 +154,10 @@ def compute_period_metrics(
         "device_id", "periodo", "inicio", "fin",
         "n_on", "frecuencia_encendido_por_dia", "tiempo_on_prom_s",
         "ok_fit_global", "rmse_global", "r2_global",
-        "h_static_nivel_m", "h_static_nivel_m_median", "h_static_nivel_m_mean", "h_static_nivel_m_std", "h_static_nivel_m_n",
-        "h_dinamico_nivel_m", "h_dinamico_nivel_m_median", "h_dinamico_nivel_m_mean", "h_dinamico_nivel_m_std", "h_dinamico_nivel_m_n",
-        "tau_s", "tau_s_median", "tau_s_mean", "tau_s_std", "tau_s_n",
-        "C_const_ls", "C_const_ls_median", "C_const_ls_mean", "C_const_ls_std", "C_const_ls_n",
+        "h_static_nivel_m", "h_static_nivel_m_mean", "h_static_nivel_m_std", "h_static_nivel_m_n",
+        "h_dinamico_nivel_m", "h_dinamico_nivel_m_mean", "h_dinamico_nivel_m_std", "h_dinamico_nivel_m_n",
+        "tau_s", "tau_s_mean", "tau_s_std", "tau_s_n",
+        "C_const_ls", "C_const_ls_mean", "C_const_ls_std", "C_const_ls_n",
         "umbral_q_usado_ls",
     ]
 
@@ -172,7 +166,7 @@ def compute_period_metrics(
 
     # Tipos numéricos
     for col in periods_df.columns:
-        if col.endswith("_median") or col.endswith("_mean") or col.endswith("_std") or col.endswith("_n") or col in {
+        if col.endswith("_mean") or col.endswith("_std") or col.endswith("_n") or col in {
             "tau_s", "h_static_nivel_m", "h_dinamico_nivel_m", "C_const_ls",
             "frecuencia_encendido_por_dia", "tiempo_on_prom_s", "rmse_global", "r2_global", "umbral_q_usado_ls"
         }:
