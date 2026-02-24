@@ -119,6 +119,35 @@ def process_folder(
     return result
 
 
+def finalize_output_df(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+
+    for col in out.columns:
+        if (
+            col.endswith("_mean")
+            or col.endswith("_std")
+            or col.endswith("_n")
+            or col in [
+                "tau_s",
+                "h_static_nivel_m",
+                "h_dinamico_nivel_m",
+                "C_const_ls",
+                "frecuencia_encendido_por_dia",
+                "tiempo_on_prom_s",
+            ]
+        ):
+            out[col] = pd.to_numeric(out[col], errors="coerce")
+
+    for col in out.columns:
+        if col.endswith("_n"):
+            out[col] = out[col].astype("Int64")
+
+    if "archivo_origen" in out.columns:
+        out = out.drop(columns=["archivo_origen"])
+
+    return out
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Procesa CSV raw y calcula métricas con tau global compartido")
     parser.add_argument("--input_dir", required=True, help="Carpeta con CSV raw")
@@ -152,9 +181,9 @@ def main() -> None:
         tau_min_s=args.tau_min_s,
         tau_max_s=args.tau_max_s,
     )
-    df.to_csv(args.output_csv, index=False)
-
     errors_df = df.attrs.get("errors_df")
+    df = finalize_output_df(df)
+    df.to_csv(args.output_csv, index=False, float_format="%.6f")
     if isinstance(errors_df, pd.DataFrame) and not errors_df.empty:
         errors_df.to_csv(args.errors_csv, index=False)
         print(f"Proceso completado con advertencias. Métricas: {args.output_csv}. Errores: {args.errors_csv}")
