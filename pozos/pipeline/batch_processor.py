@@ -41,6 +41,10 @@ def process_single_file(
     min_segment_points: int,
     period_days: float,
     aggregate_mode: str,
+    min_seg_dur_s: float,
+    min_delta_h: float,
+    tau_min_s: float,
+    tau_max_s: float,
 ) -> pd.DataFrame:
     df = load_raw_csv(path)
     threshold = infer_threshold(df, min_threshold_ls=min_threshold_ls)
@@ -50,6 +54,10 @@ def process_single_file(
         threshold=threshold,
         min_segment_points=min_segment_points,
         smooth_window=smooth_window,
+        min_seg_dur_s=min_seg_dur_s,
+        min_delta_h=min_delta_h,
+        tau_min_s=tau_min_s,
+        tau_max_s=tau_max_s,
     )
     profiler.extract_segments()
     profiler.compute_segment_metrics()
@@ -71,6 +79,10 @@ def process_folder(
     min_segment_points: int,
     period_days: float,
     aggregate_mode: str,
+    min_seg_dur_s: float,
+    min_delta_h: float,
+    tau_min_s: float,
+    tau_max_s: float,
 ) -> pd.DataFrame:
     files = sorted(input_dir.glob("*.csv"))
     if not files:
@@ -89,6 +101,10 @@ def process_folder(
                     min_segment_points=min_segment_points,
                     period_days=period_days,
                     aggregate_mode=aggregate_mode,
+                    min_seg_dur_s=min_seg_dur_s,
+                    min_delta_h=min_delta_h,
+                    tau_min_s=tau_min_s,
+                    tau_max_s=tau_max_s,
                 )
             )
         except Exception as exc:  # noqa: BLE001
@@ -104,15 +120,19 @@ def process_folder(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Procesa CSV raw y calcula métricas clave por ciclo o período")
+    parser = argparse.ArgumentParser(description="Procesa CSV raw y calcula métricas con tau global compartido")
     parser.add_argument("--input_dir", required=True, help="Carpeta con CSV raw")
     parser.add_argument("--output_csv", default="metricas_consolidadas.csv", help="CSV final")
     parser.add_argument("--errors_csv", default="errores_procesamiento.csv", help="CSV de errores")
     parser.add_argument("--smooth_window", type=int, default=1, help="Ventana de mediana para suavizado")
     parser.add_argument("--min_threshold_ls", type=float, default=0.05, help="Umbral mínimo ON")
-    parser.add_argument("--min_segment_points", type=int, default=5, help="Puntos mínimos por segmento para fit")
+    parser.add_argument("--min_segment_points", type=int, default=10, help="Puntos mínimos por segmento")
     parser.add_argument("--period_days", type=float, default=2.0, help="Días por período")
     parser.add_argument("--aggregate_mode", choices=["period", "cycle"], default="period")
+    parser.add_argument("--min_seg_dur_s", type=float, default=1800.0, help="Duración mínima de segmento (s)")
+    parser.add_argument("--min_delta_h", type=float, default=0.01, help="Variación mínima de nivel por segmento")
+    parser.add_argument("--tau_min_s", type=float, default=60.0, help="Límite inferior para tau global")
+    parser.add_argument("--tau_max_s", type=float, default=2592000.0, help="Límite superior para tau global")
     return parser
 
 
@@ -127,6 +147,10 @@ def main() -> None:
         min_segment_points=args.min_segment_points,
         period_days=args.period_days,
         aggregate_mode=args.aggregate_mode,
+        min_seg_dur_s=args.min_seg_dur_s,
+        min_delta_h=args.min_delta_h,
+        tau_min_s=args.tau_min_s,
+        tau_max_s=args.tau_max_s,
     )
     df.to_csv(args.output_csv, index=False)
 
