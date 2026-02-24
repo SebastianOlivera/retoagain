@@ -154,6 +154,11 @@ def compute_period_metrics(
         "tau_s": "tau_s_median",
         "C_const_ls": "C_const_ls_median",
     })
+    # Eliminar cualquier columna agregada ambigua legacy
+    periods_df = periods_df.drop(
+        columns=["h_static_nivel_m", "h_dinamico_nivel_m", "tau_s", "C_const_ls"],
+        errors="ignore",
+    )
 
     desired_order = [
         "device_id", "periodo", "inicio", "fin",

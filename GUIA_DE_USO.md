@@ -74,6 +74,15 @@ Aplicado en:
 - `C_const_ls_median`, `C_const_ls_mean`, `C_const_ls_std`, `C_const_ls_n`
 
 
+
+Nomenclatura estricta de agregados (sin columnas ambiguas):
+- `h_static_nivel_median`, `h_static_nivel_mean`, `h_static_nivel_std`, `h_static_nivel_n`
+- `h_dinamico_nivel_median`, `h_dinamico_nivel_mean`, `h_dinamico_nivel_std`, `h_dinamico_nivel_n`
+- `tau_s_median`, `tau_s_mean`, `tau_s_std`, `tau_s_n`
+- `C_const_ls_median`, `C_const_ls_mean`, `C_const_ls_std`, `C_const_ls_n`
+
+No se exportan columnas ambiguas como `h_static_nivel_m`, `h_dinamico_nivel_m`, `tau_s` o `C_const_ls`.
+
 ## 8) Script de prueba rápida por período
 ```bash
 python ejecutar_metricas_periodicas.py --csv entrada.csv --out_csv salida_periodos.csv --days_per_period 2
