@@ -67,3 +67,17 @@ Parámetros útiles del CLI:
 
 ## 6) Precisión numérica
 Todas las métricas numéricas de salida se limitan a **3 decimales**.
+
+
+## 7) Estructura de estadísticas por métrica
+Para cada métrica `X` en el CSV se exportan 4 columnas en este orden:
+- `X` (mediana)
+- `X_mean` (media)
+- `X_std` (desviación estándar muestral, ddof=1; si n<2 => 0.0)
+- `X_n` (cantidad de valores válidos)
+
+Aplicado en:
+- `h_static_nivel_m`
+- `h_dinamico_nivel_m`
+- `tau_s`
+- `C_const_ls`
