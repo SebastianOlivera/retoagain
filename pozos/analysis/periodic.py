@@ -34,8 +34,9 @@ def _add_stats_cols(row: dict[str, Any], base_name: str, values: Any) -> None:
 
 def _count_on_segments(pump_on: pd.Series) -> int:
     p = pump_on.astype(bool)
-    starts = p & (~p.shift(1, fill_value=False))
-    return int(starts.sum())
+    prev = p.shift(1)
+    starts = p & (prev == False)
+    return int(starts.fillna(False).sum())
 
 
 def _mean_on_duration_seconds(part: pd.DataFrame, ts_col: str = "ts") -> float:
@@ -133,6 +134,11 @@ def compute_period_metrics(
         _add_stats_cols(row, "h_static_nivel_m", hs_values)
         _add_stats_cols(row, "h_dinamico_nivel_m", hd_values)
         _add_stats_cols(row, "C_const_ls", c_values)
+
+        # Convención de salida: columna base = mean
+        row["h_static_nivel_m"] = row["h_static_nivel_m_mean"]
+        row["h_dinamico_nivel_m"] = row["h_dinamico_nivel_m_mean"]
+        row["C_const_ls"] = row["C_const_ls_mean"]
 
         tau_mean = float(fit["tau_s_mean"]) if np.isfinite(fit["tau_s_mean"]) else np.nan
         row["tau_s"] = tau_mean
