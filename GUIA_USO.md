@@ -61,3 +61,7 @@ python main.py \
 ## 6) Archivos generados
 - `output_csv`: métricas consolidadas.
 - `errors_csv` (si aplica): archivos no procesados + motivo.
+
+
+## 7) Precisión numérica
+Todas las métricas numéricas de salida se limitan a **3 decimales**.

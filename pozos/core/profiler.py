@@ -77,6 +77,21 @@ class WellProfiler:
             return 0.0
         return float(np.std(vals, ddof=1))
 
+
+
+    @staticmethod
+    def _round_float(value: float, ndigits: int = 3) -> float:
+        if value is None or not np.isfinite(value):
+            return np.nan
+        return round(float(value), ndigits)
+
+    @staticmethod
+    def _round_df_numeric(df: pd.DataFrame, ndigits: int = 3) -> pd.DataFrame:
+        out = df.copy()
+        num_cols = out.select_dtypes(include=[np.number]).columns
+        out[num_cols] = out[num_cols].round(ndigits)
+        return out
+
     def extract_segments(self) -> pd.DataFrame:
         if self.df is None:
             raise ValueError("DataFrame no cargado")
@@ -107,7 +122,7 @@ class WellProfiler:
                     "fin": part["ts"].iloc[-1],
                     "h0": float(part["nivel_use"].iloc[0]),
                     "n_points": int(len(part)),
-                    "duracion_s": float((part["ts"].iloc[-1] - part["ts"].iloc[0]).total_seconds()),
+                    "duracion_s": self._round_float(float((part["ts"].iloc[-1] - part["ts"].iloc[0]).total_seconds())),
                 }
             )
 
@@ -182,15 +197,15 @@ class WellProfiler:
                 "n_points": int(seg["n_points"]),
                 "duracion_s": float(seg["duracion_s"]),
                 "ok_fit": bool(fit.ok),
-                "rmse": fit.rmse,
-                "r2": fit.r2,
-                "h_inf_nivel_m": fit.h_inf,
-                "tau_s": fit.tau_s,
-                "C_const_ls": float(np.nanmedian(part["caudal_use"].to_numpy(float))) if int(seg["is_on"]) == 1 else np.nan,
+                "rmse": self._round_float(fit.rmse),
+                "r2": self._round_float(fit.r2),
+                "h_inf_nivel_m": self._round_float(fit.h_inf),
+                "tau_s": self._round_float(fit.tau_s),
+                "C_const_ls": self._round_float(float(np.nanmedian(part["caudal_use"].to_numpy(float)))) if int(seg["is_on"]) == 1 else np.nan,
             }
             rows.append(row)
 
-        self.segment_metrics_df = pd.DataFrame(rows)
+        self.segment_metrics_df = self._round_df_numeric(pd.DataFrame(rows))
         return self.segment_metrics_df
 
     def build_cycle_table(self, device_id: str = "") -> pd.DataFrame:
@@ -214,8 +229,8 @@ class WellProfiler:
                     hs_candidates.append(float(off["h_inf_nivel_m"]))
                     tau_off_candidates.append(float(off["tau_s"]))
 
-            hs = float(np.nanmedian(hs_candidates)) if len(hs_candidates) else np.nan
-            tau_off = float(np.nanmedian(tau_off_candidates)) if len(tau_off_candidates) else np.nan
+            hs = self._round_float(float(np.nanmedian(hs_candidates))) if len(hs_candidates) else np.nan
+            tau_off = self._round_float(float(np.nanmedian(tau_off_candidates))) if len(tau_off_candidates) else np.nan
 
             rows.append(
                 {
@@ -224,18 +239,18 @@ class WellProfiler:
                     "inicio": on["inicio"],
                     "fin": on["fin"],
                     "h_static_nivel_m": hs,
-                    "h_dinamico_nivel_m": float(on["h_inf_nivel_m"]),
+                    "h_dinamico_nivel_m": self._round_float(float(on["h_inf_nivel_m"])),
                     "tau_off_s": tau_off,
-                    "tau_on_s": float(on["tau_s"]),
-                    "C_const_ls": float(on["C_const_ls"]),
-                    "tiempo_on_prom_s": float(on["duracion_s"]),
+                    "tau_on_s": self._round_float(float(on["tau_s"])),
+                    "C_const_ls": self._round_float(float(on["C_const_ls"])),
+                    "tiempo_on_prom_s": self._round_float(float(on["duracion_s"])),
                     "ok_on": bool(on["ok_fit"]),
-                    "rmse_on": float(on["rmse"]) if np.isfinite(on["rmse"]) else np.nan,
-                    "r2_on": float(on["r2"]) if np.isfinite(on["r2"]) else np.nan,
+                    "rmse_on": self._round_float(float(on["rmse"])) if np.isfinite(on["rmse"]) else np.nan,
+                    "r2_on": self._round_float(float(on["r2"])) if np.isfinite(on["r2"]) else np.nan,
                 }
             )
 
-        return pd.DataFrame(rows)
+        return self._round_df_numeric(pd.DataFrame(rows))
 
     def aggregate_periods(self, period_days: float = 2.0, device_id: str = "") -> pd.DataFrame:
         if period_days <= 0:
@@ -261,7 +276,7 @@ class WellProfiler:
             fin = part["fin"].max()
             dur_days = max((fin - inicio).total_seconds() / 86400.0, period_days)
             n_on = int(len(on))
-            freq = float(n_on / dur_days) if dur_days > 0 else 0.0
+            freq = self._round_float(float(n_on / dur_days)) if dur_days > 0 else 0.0
 
             hs_vals = off["h_inf_nivel_m"].to_numpy(float)
             hd_vals = on["h_inf_nivel_m"].to_numpy(float)
@@ -277,25 +292,25 @@ class WellProfiler:
                     "inicio": inicio,
                     "fin": fin,
                     "n_on": n_on,
-                    "h_static_nivel_m": float(np.nanmedian(hs_vals)) if len(hs_vals) else np.nan,
-                    "h_dinamico_nivel_m": float(np.nanmedian(hd_vals)) if len(hd_vals) else np.nan,
-                    "tau_off_s": float(np.nanmedian(tau_off_vals)) if len(tau_off_vals) else np.nan,
-                    "tau_on_s": float(np.nanmedian(tau_on_vals)) if len(tau_on_vals) else np.nan,
-                    "C_const_ls": float(np.nanmedian(c_vals)) if len(c_vals) else np.nan,
+                    "h_static_nivel_m": self._round_float(float(np.nanmedian(hs_vals))) if len(hs_vals) else np.nan,
+                    "h_dinamico_nivel_m": self._round_float(float(np.nanmedian(hd_vals))) if len(hd_vals) else np.nan,
+                    "tau_off_s": self._round_float(float(np.nanmedian(tau_off_vals))) if len(tau_off_vals) else np.nan,
+                    "tau_on_s": self._round_float(float(np.nanmedian(tau_on_vals))) if len(tau_on_vals) else np.nan,
+                    "C_const_ls": self._round_float(float(np.nanmedian(c_vals))) if len(c_vals) else np.nan,
                     "frecuencia_encendido_por_dia": freq,
-                    "tiempo_on_prom_s": float(np.nanmean(on_dur_vals)) if len(on_dur_vals) else np.nan,
-                    "hs_std": self._std_ddof1_zero(hs_vals),
-                    "hd_std": self._std_ddof1_zero(hd_vals),
-                    "tau_off_std": self._std_ddof1_zero(tau_off_vals),
-                    "tau_on_std": self._std_ddof1_zero(tau_on_vals),
-                    "C_std": self._std_ddof1_zero(c_vals),
-                    "rmse_on": float(np.nanmean(on["rmse"].to_numpy(float))) if len(on) else np.nan,
-                    "r2_on": float(np.nanmean(on["r2"].to_numpy(float))) if len(on) else np.nan,
-                    "ok_on": float(np.nanmean(on["ok_fit"].to_numpy(float))) if len(on) else np.nan,
-                    "rmse_off": float(np.nanmean(off["rmse"].to_numpy(float))) if len(off) else np.nan,
-                    "r2_off": float(np.nanmean(off["r2"].to_numpy(float))) if len(off) else np.nan,
-                    "ok_off": float(np.nanmean(off["ok_fit"].to_numpy(float))) if len(off) else np.nan,
+                    "tiempo_on_prom_s": self._round_float(float(np.nanmean(on_dur_vals))) if len(on_dur_vals) else np.nan,
+                    "hs_std": self._round_float(self._std_ddof1_zero(hs_vals)),
+                    "hd_std": self._round_float(self._std_ddof1_zero(hd_vals)),
+                    "tau_off_std": self._round_float(self._std_ddof1_zero(tau_off_vals)),
+                    "tau_on_std": self._round_float(self._std_ddof1_zero(tau_on_vals)),
+                    "C_std": self._round_float(self._std_ddof1_zero(c_vals)),
+                    "rmse_on": self._round_float(float(np.nanmean(on["rmse"].to_numpy(float)))) if len(on) else np.nan,
+                    "r2_on": self._round_float(float(np.nanmean(on["r2"].to_numpy(float)))) if len(on) else np.nan,
+                    "ok_on": self._round_float(float(np.nanmean(on["ok_fit"].to_numpy(float)))) if len(on) else np.nan,
+                    "rmse_off": self._round_float(float(np.nanmean(off["rmse"].to_numpy(float)))) if len(off) else np.nan,
+                    "r2_off": self._round_float(float(np.nanmean(off["r2"].to_numpy(float)))) if len(off) else np.nan,
+                    "ok_off": self._round_float(float(np.nanmean(off["ok_fit"].to_numpy(float)))) if len(off) else np.nan,
                 }
             )
 
-        return pd.DataFrame(period_rows)
+        return self._round_df_numeric(pd.DataFrame(period_rows))

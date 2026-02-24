@@ -60,7 +60,7 @@ def process_single_file(
         out = profiler.aggregate_periods(period_days=period_days, device_id=path.stem)
 
     out["archivo_origen"] = path.name
-    out["umbral_q_usado_ls"] = threshold
+    out["umbral_q_usado_ls"] = round(float(threshold), 3)
     return out
 
 
