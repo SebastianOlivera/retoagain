@@ -52,7 +52,7 @@ Parámetros útiles del CLI:
 
 ## 5) Campos de salida por período
 - `device_id`, `periodo`, `inicio`, `fin`, `n_on`
-- `h_static_nivel_m`, `h_dinamico_nivel_m`, `tau_s`, `C_const_ls`
+- `h_static_nivel_*`, `h_dinamico_nivel_*`, `tau_s_*`, `C_const_ls_*`
 - `frecuencia_encendido_por_dia`, `tiempo_on_prom_s`
 - calidad global de ajuste: `ok_fit_global`, `rmse_global`, `r2_global`
 
@@ -61,19 +61,17 @@ Todas las métricas numéricas de salida se limitan a **3 decimales**.
 
 
 ## 7) Estructura de estadísticas por métrica
-Para cada métrica `X` en el CSV se exportan 4 columnas en este orden:
-- `X` (mediana)
-- `X_mean` (media)
-- `X_std` (desviación estándar muestral, ddof=1; si n<2 => 0.0)
-- `X_n` (cantidad de valores válidos)
+Para cada métrica agregada se exportan 4 columnas con sufijos explícitos:
+- `<variable>_median`
+- `<variable>_mean`
+- `<variable>_std` (desviación estándar muestral, ddof=1; si n<2 => 0.0)
+- `<variable>_n` (cantidad de valores válidos)
 
 Aplicado en:
-- `h_static_nivel_m`
-- `h_dinamico_nivel_m`
-- `tau_s`
-- `C_const_ls`
-
-La columna base (`X`) ya corresponde a la mediana.
+- `h_static_nivel_median`, `h_static_nivel_mean`, `h_static_nivel_std`, `h_static_nivel_n`
+- `h_dinamico_nivel_median`, `h_dinamico_nivel_mean`, `h_dinamico_nivel_std`, `h_dinamico_nivel_n`
+- `tau_s_median`, `tau_s_mean`, `tau_s_std`, `tau_s_n`
+- `C_const_ls_median`, `C_const_ls_mean`, `C_const_ls_std`, `C_const_ls_n`
 
 
 ## 8) Script de prueba rápida por período
