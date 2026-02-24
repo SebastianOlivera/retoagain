@@ -20,3 +20,9 @@ También podés usar:
 ```bash
 python main.py --csv entrada.csv --out_csv salida_periodos.csv --days_per_period 2
 ```
+
+
+### Procesar carpeta completa de CSV
+```bash
+python ejecutar_metricas_periodicas.py --input_dir /ruta/carpeta_csv --out_csv salida_periodos.csv --days_per_period 2
+```

@@ -82,3 +82,9 @@ python ejecutar_metricas_periodicas.py --csv entrada.csv --out_csv salida_period
 
 ## 9) Nota sobre tau enorme
 Si la curva de nivel del segmento ON es casi plana (baja identificabilidad), el ajuste puede devolver un `tau` muy grande. Esto es esperado físicamente y no se recorta de forma artificial.
+
+
+### Procesar carpeta completa de CSV
+```bash
+python ejecutar_metricas_periodicas.py --input_dir /ruta/carpeta_csv --out_csv salida_periodos.csv --days_per_period 2
+```
