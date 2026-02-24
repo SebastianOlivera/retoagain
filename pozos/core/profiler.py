@@ -177,6 +177,42 @@ class WellProfiler:
         self.segments_df = pd.DataFrame(rows)
         return self.segments_df
 
+
+    def _extract_segments_from_df(self, dfx: pd.DataFrame) -> pd.DataFrame:
+        if dfx.empty:
+            return pd.DataFrame(columns=["segment_id", "start_idx", "end_idx", "is_on", "inicio", "fin", "h0", "n_points", "duracion_s", "delta_h"])
+
+        segments = []
+        start = 0
+        current = int(dfx.loc[0, "state"])
+        for idx in range(1, len(dfx)):
+            st = int(dfx.loc[idx, "state"])
+            if st != current:
+                segments.append((start, idx - 1, current))
+                start = idx
+                current = st
+        segments.append((start, len(dfx) - 1, current))
+
+        rows = []
+        for seg_id, (s, e, is_on) in enumerate(segments, start=1):
+            part = dfx.loc[s:e]
+            h_seg = part["nivel_use"].to_numpy(float)
+            rows.append(
+                {
+                    "segment_id": seg_id,
+                    "start_idx": int(s),
+                    "end_idx": int(e),
+                    "is_on": int(is_on),
+                    "inicio": part["ts"].iloc[0],
+                    "fin": part["ts"].iloc[-1],
+                    "h0": self._round_float(float(h_seg[0])),
+                    "n_points": int(len(part)),
+                    "duracion_s": self._round_float(float((part["ts"].iloc[-1] - part["ts"].iloc[0]).total_seconds())),
+                    "delta_h": self._round_float(float(np.nanmax(h_seg) - np.nanmin(h_seg))),
+                }
+            )
+        return pd.DataFrame(rows)
+
     def fit_global_tau_and_hinf(
         self,
         segments: pd.DataFrame,
@@ -417,36 +453,82 @@ class WellProfiler:
             raise ValueError("period_days debe ser > 0")
         if self.df is None:
             raise ValueError("DataFrame no cargado")
-        if self.segment_metrics_df is None:
-            self.compute_segment_metrics()
-        assert self.segment_metrics_df is not None
 
-        seg = self.segment_metrics_df.copy()
-        seg["inicio"] = pd.to_datetime(seg["inicio"], utc=True)
-        start_ts = self.df["ts"].min()
+        dfx_all = self.df.copy().reset_index(drop=True)
+        start_ts = dfx_all["ts"].min()
         period_s = period_days * 86400.0
-        seg["periodo"] = (((seg["inicio"] - start_ts).dt.total_seconds()) // period_s).astype(int) + 1
+        dfx_all["periodo"] = (((dfx_all["ts"] - start_ts).dt.total_seconds()) // period_s).astype(int) + 1
 
         rows = []
-        for periodo, part in seg.groupby("periodo", sort=True):
-            fit_part = part[part["used_in_global_fit"] == 1]
-            on = part[part["is_on"] == 1]
-            on_fit = fit_part[fit_part["is_on"] == 1]
-            off_fit = fit_part[fit_part["is_on"] == 0]
+        for periodo, dfp in dfx_all.groupby("periodo", sort=True):
+            dfp = dfp.reset_index(drop=True)
+            seg_local = self._extract_segments_from_df(dfp)
 
-            inicio = part["inicio"].min()
-            fin = part["fin"].max()
+            if seg_local.empty:
+                continue
+
+            tau_s, h_inf_map, fit_metrics = self.fit_global_tau_and_hinf(
+                segments=seg_local,
+                ts=dfp["ts"],
+                nivel_m=dfp["nivel_use"],
+            )
+
+            seg_rows = []
+            for _, seg in seg_local.iterrows():
+                seg_id = int(seg["segment_id"])
+                sidx = int(seg["start_idx"])
+                eidx = int(seg["end_idx"])
+                part = dfp.loc[sidx:eidx]
+                h = part["nivel_use"].to_numpy(float)
+                h0 = float(h[0])
+                t = (part["ts"] - part["ts"].iloc[0]).dt.total_seconds().to_numpy(float)
+
+                used_in_fit = seg_id in h_inf_map
+                h_inf = h_inf_map.get(seg_id, self._tail_median(h))
+
+                if np.isfinite(tau_s):
+                    pred = h_inf + (h0 - h_inf) * np.exp(-t / tau_s)
+                    resid = h - pred
+                    rmse = float(np.sqrt(np.mean(resid**2)))
+                    ss_tot = float(np.sum((h - np.mean(h)) ** 2))
+                    r2 = float(1 - np.sum(resid**2) / ss_tot) if ss_tot > 0 else np.nan
+                else:
+                    rmse = np.nan
+                    r2 = np.nan
+
+                seg_rows.append(
+                    {
+                        "segment_id": seg_id,
+                        "is_on": int(seg["is_on"]),
+                        "inicio": seg["inicio"],
+                        "fin": seg["fin"],
+                        "duracion_s": float(seg["duracion_s"]),
+                        "used_in_global_fit": int(used_in_fit),
+                        "h_inf_nivel_m": float(h_inf) if np.isfinite(h_inf) else np.nan,
+                        "tau_s": float(tau_s) if np.isfinite(tau_s) else np.nan,
+                        "rmse": rmse,
+                        "r2": r2,
+                        "C_const_ls": float(np.nanmedian(part["caudal_use"].to_numpy(float))) if int(seg["is_on"]) == 1 else np.nan,
+                    }
+                )
+
+            seg_metrics_local = pd.DataFrame(seg_rows)
+            fit_seg = seg_metrics_local[seg_metrics_local["used_in_global_fit"] == 1]
+            on_all = seg_metrics_local[seg_metrics_local["is_on"] == 1]
+            on_fit = fit_seg[fit_seg["is_on"] == 1]
+            off_fit = fit_seg[fit_seg["is_on"] == 0]
+
+            inicio = seg_metrics_local["inicio"].min()
+            fin = seg_metrics_local["fin"].max()
             dur_days = max((fin - inicio).total_seconds() / 86400.0, period_days)
-            n_on = int(len(on))
+            n_on = int(len(on_all))
             freq = self._round_float(float(n_on / dur_days)) if dur_days > 0 else 0.0
 
             hs_values = off_fit["h_inf_nivel_m"].to_numpy(float)
             hd_values = on_fit["h_inf_nivel_m"].to_numpy(float)
             c_values = on_fit["C_const_ls"].to_numpy(float)
 
-            tau_period_values = fit_part["tau_s"].to_numpy(float)
-            tau_global = float(np.nanmedian(tau_period_values)) if len(tau_period_values) else np.nan
-            tau_n = int(len(fit_part)) if np.isfinite(tau_global) else 0
+            tau_n = int(fit_metrics.get("n_valid_segments", 0)) if np.isfinite(tau_s) else 0
 
             row = {
                 "device_id": device_id,
@@ -455,18 +537,18 @@ class WellProfiler:
                 "fin": fin,
                 "n_on": n_on,
                 "frecuencia_encendido_por_dia": freq,
-                "tiempo_on_prom_s": self._round_float(float(np.nanmean(on["duracion_s"].to_numpy(float)))) if len(on) else np.nan,
-                "ok_fit_global": bool(self.global_fit_metrics.get("ok_fit_global", False)),
-                "rmse_global": self._round_float(float(self.global_fit_metrics.get("rmse_global", np.nan))),
-                "r2_global": self._round_float(float(self.global_fit_metrics.get("r2_global", np.nan))),
+                "tiempo_on_prom_s": self._round_float(float(np.nanmean(on_all["duracion_s"].to_numpy(float)))) if len(on_all) else np.nan,
+                "ok_fit_global": bool(fit_metrics.get("ok_fit_global", False)),
+                "rmse_global": self._round_float(float(fit_metrics.get("rmse_global", np.nan))),
+                "r2_global": self._round_float(float(fit_metrics.get("r2_global", np.nan))),
             }
             self.add_stats_cols(row, "h_static_nivel_m", hs_values)
             self.add_stats_cols(row, "h_dinamico_nivel_m", hd_values)
             self.add_stats_cols(row, "C_const_ls", c_values)
 
-            row["tau_s"] = self._round_float(float(tau_global)) if np.isfinite(tau_global) else np.nan
+            row["tau_s"] = self._round_float(float(tau_s)) if np.isfinite(tau_s) else np.nan
             row["tau_s_mean"] = row["tau_s"]
-            row["tau_s_std"] = 0.0 if tau_n > 0 and np.isfinite(tau_global) else np.nan
+            row["tau_s_std"] = 0.0 if tau_n > 0 and np.isfinite(tau_s) else np.nan
             row["tau_s_n"] = tau_n
 
             rows.append(self._stats_order_columns(row, ["h_static_nivel_m", "h_dinamico_nivel_m", "tau_s", "C_const_ls"]))
@@ -476,3 +558,4 @@ class WellProfiler:
             if c in out.columns:
                 out[c] = out[c].fillna(0).astype(int)
         return self._round_df_numeric(out)
+
