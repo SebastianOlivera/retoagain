@@ -1,1 +1,0 @@
-"""Módulos estadísticos del proyecto."""

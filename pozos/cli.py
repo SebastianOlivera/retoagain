@@ -1,4 +1,4 @@
-from pozos.pipeline.batch_processor import main
+from run_periodic_pipeline import main
 
 
 if __name__ == "__main__":

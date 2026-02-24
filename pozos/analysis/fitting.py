@@ -165,9 +165,3 @@ def fit_period_cycles(
         "fit_count": tau_n,
     }
 
-
-# Compat: conservar nombre previo aunque ya no se use para pipeline principal.
-def fit_hd_k_A_from_cycle(*args: Any, **kwargs: Any) -> dict[str, Any]:
-    raise NotImplementedError(
-        "fit_hd_k_A_from_cycle fue reemplazado por fit_tau_hd_by_segment y fit_period_cycles."
-    )
