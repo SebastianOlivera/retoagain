@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from pozos.analysis.metricas_por_periodo import compute_period_metrics
+from pozos.analysis.metricas_por_periodo import compute_cycle_metrics, compute_period_metrics
 
 
 def _process_one_file(
@@ -13,7 +13,7 @@ def _process_one_file(
     thr_ls: float,
     smooth_window: int,
     days_per_period: float,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     df = pd.read_csv(csv_path)
     if "device_id" not in df.columns:
         df["device_id"] = csv_path.stem
@@ -24,7 +24,8 @@ def _process_one_file(
         smooth_window=smooth_window,
         days_per_period=days_per_period,
     )
-    return periods_df
+    cycles_df = compute_cycle_metrics(df, thr_ls=thr_ls, smooth_window=smooth_window)
+    return periods_df, cycles_df
 
 
 def main() -> None:
@@ -32,6 +33,7 @@ def main() -> None:
     ap.add_argument("--csv", help="Entrada única con ts, caudal_ls, nivel_m y opcional device_id")
     ap.add_argument("--input_dir", help="Carpeta con múltiples CSV a procesar")
     ap.add_argument("--out_csv", required=True, help="Salida CSV final por período")
+    ap.add_argument("--out_cycles_csv", help="Salida opcional con métricas por ciclo")
     ap.add_argument("--errors_csv", default="errores_procesamiento.csv", help="CSV de errores por archivo")
     ap.add_argument("--thr_ls", type=float, default=0.05)
     ap.add_argument("--smooth_window", type=int, default=5)
@@ -44,13 +46,15 @@ def main() -> None:
     out_path = Path(args.out_csv)
 
     if args.csv:
-        periods_df = _process_one_file(
+        periods_df, cycles_df = _process_one_file(
             csv_path=Path(args.csv),
             thr_ls=args.thr_ls,
             smooth_window=args.smooth_window,
             days_per_period=args.days_per_period,
         )
         periods_df.to_csv(out_path, index=False, float_format="%.2f", decimal=".")
+        if args.out_cycles_csv:
+            cycles_df.to_csv(Path(args.out_cycles_csv), index=False, float_format="%.2f", decimal=".")
         print(f"CSV final generado: {out_path}")
         return
 
@@ -59,26 +63,32 @@ def main() -> None:
     if not files:
         raise SystemExit(f"No se encontraron CSV en: {input_dir}")
 
-    tables: list[pd.DataFrame] = []
+    period_tables: list[pd.DataFrame] = []
+    cycle_tables: list[pd.DataFrame] = []
     errors: list[dict[str, str]] = []
 
     for csv_path in files:
         try:
-            part = _process_one_file(
+            part_periods, part_cycles = _process_one_file(
                 csv_path=csv_path,
                 thr_ls=args.thr_ls,
                 smooth_window=args.smooth_window,
                 days_per_period=args.days_per_period,
             )
-            tables.append(part)
+            period_tables.append(part_periods)
+            if args.out_cycles_csv:
+                cycle_tables.append(part_cycles)
         except Exception as exc:  # noqa: BLE001
             errors.append({"archivo": csv_path.name, "error": str(exc)})
 
-    if not tables:
+    if not period_tables:
         raise SystemExit("No se pudo procesar ningún CSV de la carpeta")
 
-    final_df = pd.concat(tables, ignore_index=True)
+    final_df = pd.concat(period_tables, ignore_index=True)
     final_df.to_csv(out_path, index=False, float_format="%.2f", decimal=".")
+
+    if args.out_cycles_csv and cycle_tables:
+        pd.concat(cycle_tables, ignore_index=True).to_csv(Path(args.out_cycles_csv), index=False, float_format="%.2f", decimal=".")
 
     if errors:
         pd.DataFrame(errors).to_csv(args.errors_csv, index=False)

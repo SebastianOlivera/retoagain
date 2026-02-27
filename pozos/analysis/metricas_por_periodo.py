@@ -69,6 +69,60 @@ def _mean_on_duration_seconds(part: pd.DataFrame, ts_col: str = "ts") -> float:
     return float(np.mean(durs)) if durs else np.nan
 
 
+def _prepare_df(df: pd.DataFrame, smooth_window: int, thr_ls: float) -> pd.DataFrame:
+    dfx = df.copy()
+    dfx["ts"] = pd.to_datetime(dfx["ts"], errors="coerce")
+    dfx["caudal_ls"] = pd.to_numeric(dfx["caudal_ls"], errors="coerce")
+    dfx["nivel_m"] = pd.to_numeric(dfx["nivel_m"], errors="coerce")
+    dfx = dfx.dropna(subset=["ts", "caudal_ls", "nivel_m"]).sort_values("ts").reset_index(drop=True)
+    if dfx.empty:
+        return dfx
+    dfx["nivel_use"] = robust_median_smooth(dfx["nivel_m"], window=max(1, int(smooth_window)))
+    if "estado_bomba" in dfx.columns:
+        dfx["pump_on"] = pd.to_numeric(dfx["estado_bomba"], errors="coerce").fillna(0).astype(int).astype(bool)
+    else:
+        dfx["pump_on"] = dfx["caudal_ls"] > float(thr_ls)
+    return dfx
+
+
+def compute_cycle_metrics(
+    df: pd.DataFrame,
+    thr_ls: float = 0.05,
+    smooth_window: int = 5,
+) -> pd.DataFrame:
+    required = {"ts", "caudal_ls", "nivel_m"}
+    if not required.issubset(df.columns):
+        raise ValueError(f"Faltan columnas. Requiere {required}")
+
+    dfx = _prepare_df(df, smooth_window=smooth_window, thr_ls=thr_ls)
+    if dfx.empty:
+        return pd.DataFrame()
+
+    fit = fit_period_cycles(dfx, thr_ls=thr_ls, ts_col="ts", flow_col="caudal_ls", level_col="nivel_use")
+    rows: list[dict[str, Any]] = []
+    for cyc in fit.get("cycles", []):
+        rows.append(
+            {
+                "device_id": str(dfx["device_id"].iloc[0]) if "device_id" in dfx.columns else "",
+                "cycle_idx": cyc["cycle_idx"],
+                "inicio_on": cyc["inicio_on"],
+                "fin_on": cyc["fin_on"],
+                "h_static": cyc["h_static"],
+                "hd_fit": cyc["hd_fit"],
+                "tau_fit": cyc["tau_fit"],
+                "C_const_ls": cyc["C_const_ls"],
+                "k": cyc["k"],
+                "ok_k": cyc["ok_k"],
+                "rmse": cyc["rmse"],
+                "r2": cyc["r2"],
+                "ok_fit": cyc["ok_fit"],
+                "tiempo_entre_encendidos_s": cyc["tiempo_entre_encendidos_s"],
+                "tiempo_entre_error": cyc["tiempo_entre_error"],
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def compute_period_metrics(
     df: pd.DataFrame,
     thr_ls: float = 0.05,
@@ -82,17 +136,9 @@ def compute_period_metrics(
     if not required.issubset(df.columns):
         raise ValueError(f"Faltan columnas. Requiere {required}")
 
-    dfx = df.copy()
-    dfx["ts"] = pd.to_datetime(dfx["ts"], errors="coerce")
-    dfx["caudal_ls"] = pd.to_numeric(dfx["caudal_ls"], errors="coerce")
-    dfx["nivel_m"] = pd.to_numeric(dfx["nivel_m"], errors="coerce")
-    dfx = dfx.dropna(subset=["ts", "caudal_ls", "nivel_m"]).sort_values("ts").reset_index(drop=True)
-
+    dfx = _prepare_df(df, smooth_window=smooth_window, thr_ls=thr_ls)
     if dfx.empty:
         return pd.DataFrame(), None
-
-    dfx["nivel_use"] = robust_median_smooth(dfx["nivel_m"], window=max(1, int(smooth_window)))
-    dfx["pump_on"] = dfx["caudal_ls"] > float(thr_ls)
 
     start_ts = dfx["ts"].min()
     period_s = float(days_per_period) * 86400.0
@@ -104,12 +150,14 @@ def compute_period_metrics(
         part = part.copy().reset_index(drop=True)
         on_mask = part["pump_on"].astype(bool)
 
-        # Fitting físico por ciclos ON del período
         fit = fit_period_cycles(part, thr_ls=thr_ls, ts_col="ts", flow_col="caudal_ls", level_col="nivel_use")
 
-        hs_values = part.loc[~on_mask, "nivel_use"].to_numpy(float)  # SOLO OFF
-        hd_values = part.loc[on_mask, "nivel_use"].to_numpy(float)   # SOLO ON
-        c_values = part.loc[on_mask, "caudal_ls"].to_numpy(float)    # SOLO ON
+        hs_values = part.loc[~on_mask, "nivel_use"].to_numpy(float)
+        hd_values = part.loc[on_mask, "nivel_use"].to_numpy(float)
+        c_values = part.loc[on_mask, "caudal_ls"].to_numpy(float)
+        tau_values = np.asarray(fit.get("tau_values", []), dtype=float)
+        k_values = np.asarray(fit.get("k_values", []), dtype=float)
+        t_between_values = np.asarray(fit.get("tiempo_entre_encendidos_values", []), dtype=float)
 
         inicio = part["ts"].iloc[0]
         fin = part["ts"].iloc[-1]
@@ -129,55 +177,80 @@ def compute_period_metrics(
             "ok_fit_global": bool(fit["ok_fit_global"]),
             "rmse_global": float(fit["rmse_global"]) if np.isfinite(fit["rmse_global"]) else np.nan,
             "r2_global": float(fit["r2_global"]) if np.isfinite(fit["r2_global"]) else np.nan,
+            "umbral_q_usado_ls": float(thr_ls),
         }
 
         _add_stats_cols(row, "h_static_nivel", hs_values)
         _add_stats_cols(row, "h_dinamico_nivel", hd_values)
+        _add_stats_cols(row, "tau_s", tau_values)
         _add_stats_cols(row, "C_const_ls", c_values)
-
-        tau_values = np.asarray(fit.get("tau_values", []), dtype=float)
-        tau_values = tau_values[np.isfinite(tau_values)]
-        row["tau_s_median"] = float(np.median(tau_values)) if len(tau_values) else np.nan
-        row["tau_s_mean"] = float(fit["tau_s_mean"]) if np.isfinite(fit["tau_s_mean"]) else np.nan
-        row["tau_s_std"] = float(fit["tau_s_std"]) if np.isfinite(fit["tau_s_std"]) else np.nan
-        row["tau_s_n"] = int(fit["tau_s_n"])
-
-        row["umbral_q_usado_ls"] = float(thr_ls)
+        _add_stats_cols(row, "k", k_values)
+        _add_stats_cols(row, "tiempo_entre_encendidos", t_between_values)
         rows.append(row)
 
     periods_df = pd.DataFrame(rows)
 
-    # Normalización defensiva por compatibilidad con nombres legacy
-    periods_df = periods_df.rename(columns={
-        "h_static_nivel_m": "h_static_nivel_median",
-        "h_dinamico_nivel_m": "h_dinamico_nivel_median",
-        "tau_s": "tau_s_median",
-        "C_const_ls": "C_const_ls_median",
-    })
-    # Eliminar cualquier columna agregada ambigua legacy
+    periods_df = periods_df.rename(
+        columns={
+            "h_static_nivel_m": "h_static_nivel_median",
+            "h_dinamico_nivel_m": "h_dinamico_nivel_median",
+            "tau_s": "tau_s_median",
+            "C_const_ls": "C_const_ls_median",
+        }
+    )
     periods_df = periods_df.drop(
         columns=["h_static_nivel_m", "h_dinamico_nivel_m", "tau_s", "C_const_ls"],
         errors="ignore",
     )
 
     desired_order = [
-        "device_id", "periodo", "inicio", "fin",
-        "n_on", "frecuencia_encendido_por_dia", "tiempo_on_prom_s",
-        "ok_fit_global", "rmse_global", "r2_global",
-        "h_static_nivel_median", "h_static_nivel_mean", "h_static_nivel_std", "h_static_nivel_n",
-        "h_dinamico_nivel_median", "h_dinamico_nivel_mean", "h_dinamico_nivel_std", "h_dinamico_nivel_n",
-        "tau_s_median", "tau_s_mean", "tau_s_std", "tau_s_n",
-        "C_const_ls_median", "C_const_ls_mean", "C_const_ls_std", "C_const_ls_n",
+        "device_id",
+        "periodo",
+        "inicio",
+        "fin",
+        "n_on",
+        "frecuencia_encendido_por_dia",
+        "tiempo_on_prom_s",
+        "ok_fit_global",
+        "rmse_global",
+        "r2_global",
+        "h_static_nivel_median",
+        "h_static_nivel_mean",
+        "h_static_nivel_std",
+        "h_static_nivel_n",
+        "h_dinamico_nivel_median",
+        "h_dinamico_nivel_mean",
+        "h_dinamico_nivel_std",
+        "h_dinamico_nivel_n",
+        "tau_s_median",
+        "tau_s_mean",
+        "tau_s_std",
+        "tau_s_n",
+        "C_const_ls_median",
+        "C_const_ls_mean",
+        "C_const_ls_std",
+        "C_const_ls_n",
+        "k_median",
+        "k_mean",
+        "k_std",
+        "k_n",
+        "tiempo_entre_encendidos_median",
+        "tiempo_entre_encendidos_mean",
+        "tiempo_entre_encendidos_std",
+        "tiempo_entre_encendidos_n",
         "umbral_q_usado_ls",
     ]
 
     cols = [c for c in desired_order if c in periods_df.columns] + [c for c in periods_df.columns if c not in desired_order]
     periods_df = periods_df[cols]
 
-    # Tipos numéricos
     for col in periods_df.columns:
         if col.endswith("_median") or col.endswith("_mean") or col.endswith("_std") or col.endswith("_n") or col in {
-            "frecuencia_encendido_por_dia", "tiempo_on_prom_s", "rmse_global", "r2_global", "umbral_q_usado_ls"
+            "frecuencia_encendido_por_dia",
+            "tiempo_on_prom_s",
+            "rmse_global",
+            "r2_global",
+            "umbral_q_usado_ls",
         }:
             periods_df[col] = pd.to_numeric(periods_df[col], errors="coerce")
 

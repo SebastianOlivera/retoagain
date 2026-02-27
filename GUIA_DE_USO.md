@@ -8,6 +8,8 @@ Este pipeline calcula por **pozo** y por **período o ciclo** las métricas clav
 4. `C_const_ls_median`
 5. `frecuencia_encendido_por_dia`
 6. `tiempo_on_prom_s`
+7. `tiempo_entre_encendidos_*`
+8. `k_*`
 
 ## 1) Requisitos de entrada
 Cada CSV debe incluir:
@@ -22,7 +24,7 @@ Opcional:
 ## 2) Ejecución por período (recomendado)
 
 ```bash
-python ejecutar_metricas_periodicas.py --csv entrada.csv --out_csv salida_periodos.csv --days_per_period 2
+python ejecutar_metricas_periodicas.py --csv entrada.csv --out_csv salida_periodos.csv --out_cycles_csv salida_ciclos.csv --days_per_period 2
 ```
 
 ## 3) Ejecución por ciclo
@@ -85,7 +87,7 @@ No se exportan columnas ambiguas como `h_static_nivel_m`, `h_dinamico_nivel_m`, 
 
 ## 8) Script de prueba rápida por período
 ```bash
-python ejecutar_metricas_periodicas.py --csv entrada.csv --out_csv salida_periodos.csv --days_per_period 2
+python ejecutar_metricas_periodicas.py --csv entrada.csv --out_csv salida_periodos.csv --out_cycles_csv salida_ciclos.csv --days_per_period 2
 ```
 
 
@@ -95,5 +97,19 @@ Si la curva de nivel del segmento ON es casi plana (baja identificabilidad), el 
 
 ### Procesar carpeta completa de CSV
 ```bash
-python ejecutar_metricas_periodicas.py --input_dir /ruta/carpeta_csv --out_csv salida_periodos.csv --days_per_period 2
+python ejecutar_metricas_periodicas.py --input_dir /ruta/carpeta_csv --out_csv salida_periodos.csv --out_cycles_csv salida_ciclos.csv --days_per_period 2
 ```
+
+
+## 10) Nuevas métricas físicas
+- `tiempo_entre_encendidos_s` se calcula por ciclo como: inicio_on(i+1) - fin_on(i).
+- Si el valor resulta negativo, se marca como inválido (`NaN`) y se deja flag de error por ciclo.
+- `k` por ciclo se calcula como `k = C / (hd_fit - h_static)` con validaciones:
+  - `abs(hd_fit - h_static) >= 1e-6`
+  - `C > 0`
+  - `ok_fit=True`
+- Si el denominador es casi cero o faltan datos, `k` queda `NaN`.
+- En salida por período se agregan `k_median|mean|std|n` y `tiempo_entre_encendidos_median|mean|std|n`.
+
+
+Salida por ciclo (`--out_cycles_csv`) incluye, por cada ON: `tau_fit`, `hd_fit`, `h_static`, `k`, `ok_k`, `tiempo_entre_encendidos_s` y flags de validación.

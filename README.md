@@ -12,7 +12,7 @@ Nombres de archivos alineados al propósito:
 ## Uso
 
 ```bash
-python ejecutar_metricas_periodicas.py --csv entrada.csv --out_csv salida_periodos.csv --days_per_period 2
+python ejecutar_metricas_periodicas.py --csv entrada.csv --out_csv salida_periodos.csv --out_cycles_csv salida_ciclos.csv --days_per_period 2
 ```
 
 También podés usar:
@@ -26,3 +26,8 @@ python main.py --csv entrada.csv --out_csv salida_periodos.csv --days_per_period
 ```bash
 python ejecutar_metricas_periodicas.py --input_dir /ruta/carpeta_csv --out_csv salida_periodos.csv --days_per_period 2
 ```
+
+
+Incluye agregados adicionales por período: `k_median|mean|std|n` y `tiempo_entre_encendidos_median|mean|std|n`.
+
+También podés pedir detalle por ciclo con `--out_cycles_csv`.
