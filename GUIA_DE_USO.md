@@ -20,6 +20,7 @@ Cada CSV debe incluir:
 
 Opcional:
 - `estado_bomba` (0/1). Si no viene, se infiere por `caudal_m3s > umbral_q`.
+- `nombre_pozo` (si existe, se exporta justo después de `device_id`).
 
 ## 2) Ejecución por período (recomendado)
 
@@ -53,7 +54,7 @@ Parámetros útiles del CLI:
 - `--tau_max_s`
 
 ## 5) Campos de salida por período
-- `device_id`, `periodo`, `inicio`, `fin`, `n_on`
+- `device_id`, `nombre_pozo`, `periodo`, `inicio`, `fin`, `n_on`
 - `h_static_nivel_*`, `h_dinamico_nivel_*`, `tau_s_*`, `C_const_m3s_*`
 - `frecuencia_encendido_por_dia`, `tiempo_on_prom_s`
 - calidad global de ajuste: `ok_fit_global`, `rmse_global`, `r2_global`

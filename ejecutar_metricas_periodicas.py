@@ -17,6 +17,8 @@ def _process_one_file(
     df = pd.read_csv(csv_path)
     if "device_id" not in df.columns:
         df["device_id"] = csv_path.stem
+    if "nombre_pozo" not in df.columns:
+        df["nombre_pozo"] = df["device_id"]
 
     periods_df, _ = compute_period_metrics(
         df,

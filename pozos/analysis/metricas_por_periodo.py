@@ -41,6 +41,18 @@ def _count_on_segments(pump_on: pd.Series) -> int:
     return int(starts.fillna(False).sum())
 
 
+
+
+def _resolve_well_name(df: pd.DataFrame) -> str:
+    candidates = ["nombre_pozo", "well_name", "pozo", "well", "name"]
+    for col in candidates:
+        if col in df.columns:
+            val = df[col].iloc[0]
+            if pd.notna(val):
+                return str(val)
+    return ""
+
+
 def _mean_on_duration_seconds(part: pd.DataFrame, ts_col: str = "ts") -> float:
     on = part["pump_on"].astype(bool).to_numpy()
     if len(on) == 0:
@@ -115,6 +127,7 @@ def compute_cycle_metrics(
         rows.append(
             {
                 "device_id": str(dfx["device_id"].iloc[0]) if "device_id" in dfx.columns else "",
+                "nombre_pozo": _resolve_well_name(dfx),
                 "cycle_idx": cyc["cycle_idx"],
                 "inicio_on": cyc["inicio_on"],
                 "fin_on": cyc["fin_on"],
@@ -179,6 +192,7 @@ def compute_period_metrics(
 
         row: dict[str, Any] = {
             "device_id": str(part["device_id"].iloc[0]) if "device_id" in part.columns else "",
+            "nombre_pozo": _resolve_well_name(part),
             "periodo": int(periodo),
             "inicio": inicio,
             "fin": fin,
@@ -203,6 +217,7 @@ def compute_period_metrics(
 
     desired_order = [
         "device_id",
+        "nombre_pozo",
         "periodo",
         "inicio",
         "fin",
