@@ -144,9 +144,9 @@ def fit_tau_hd_by_segment(
 
 def fit_period_cycles(
     df_period: pd.DataFrame,
-    thr_ls: float,
+    thr_m3s: float,
     ts_col: str = "ts",
-    flow_col: str = "caudal_ls",
+    flow_col: str = "caudal_m3s",
     level_col: str = "nivel_m",
     eps_denom: float = 1e-6,
 ) -> dict[str, Any]:
@@ -176,7 +176,7 @@ def fit_period_cycles(
     if "estado_bomba" in dfx.columns:
         dfx["pump_on"] = pd.to_numeric(dfx["estado_bomba"], errors="coerce").fillna(0).astype(int).astype(bool)
     else:
-        dfx["pump_on"] = dfx[flow_col] > float(thr_ls)
+        dfx["pump_on"] = dfx[flow_col] > float(thr_m3s)
 
     on_segments = _extract_on_segments(dfx, on_col="pump_on")
 
@@ -237,7 +237,7 @@ def fit_period_cycles(
             "h_static": h_static,
             "hd_fit": hd_fit,
             "tau_fit": tau_fit,
-            "C_const_ls": c_seg,
+            "C_const_m3s": c_seg,
             "k": k_val,
             "ok_k": ok_k,
             "rmse": rmse,

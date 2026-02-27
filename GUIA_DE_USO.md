@@ -5,7 +5,7 @@ Este pipeline calcula por **pozo** y por **período o ciclo** las métricas clav
 1. `h_static_nivel_median` (hs mediana)
 2. `h_dinamico_nivel_median` (hd mediana)
 3. `tau_s_median`
-4. `C_const_ls_median`
+4. `C_const_m3s_median`
 5. `frecuencia_encendido_por_dia`
 6. `tiempo_on_prom_s`
 7. `tiempo_entre_encendidos_*`
@@ -16,10 +16,10 @@ Cada CSV debe incluir:
 
 - `ts` (timestamp parseable)
 - `nivel_m` (float)
-- `caudal_ls` (float)
+- `caudal_m3s` (float)
 
 Opcional:
-- `estado_bomba` (0/1). Si no viene, se infiere por `caudal_ls > umbral_q`.
+- `estado_bomba` (0/1). Si no viene, se infiere por `caudal_m3s > umbral_q`.
 
 ## 2) Ejecución por período (recomendado)
 
@@ -54,7 +54,7 @@ Parámetros útiles del CLI:
 
 ## 5) Campos de salida por período
 - `device_id`, `periodo`, `inicio`, `fin`, `n_on`
-- `h_static_nivel_*`, `h_dinamico_nivel_*`, `tau_s_*`, `C_const_ls_*`
+- `h_static_nivel_*`, `h_dinamico_nivel_*`, `tau_s_*`, `C_const_m3s_*`
 - `frecuencia_encendido_por_dia`, `tiempo_on_prom_s`
 - calidad global de ajuste: `ok_fit_global`, `rmse_global`, `r2_global`
 
@@ -73,7 +73,7 @@ Aplicado en:
 - `h_static_nivel_median`, `h_static_nivel_mean`, `h_static_nivel_std`, `h_static_nivel_n`
 - `h_dinamico_nivel_median`, `h_dinamico_nivel_mean`, `h_dinamico_nivel_std`, `h_dinamico_nivel_n`
 - `tau_s_median`, `tau_s_mean`, `tau_s_std`, `tau_s_n`
-- `C_const_ls_median`, `C_const_ls_mean`, `C_const_ls_std`, `C_const_ls_n`
+- `C_const_m3s_median`, `C_const_m3s_mean`, `C_const_m3s_std`, `C_const_m3s_n`
 
 
 
@@ -81,9 +81,9 @@ Nomenclatura estricta de agregados (sin columnas ambiguas):
 - `h_static_nivel_median`, `h_static_nivel_mean`, `h_static_nivel_std`, `h_static_nivel_n`
 - `h_dinamico_nivel_median`, `h_dinamico_nivel_mean`, `h_dinamico_nivel_std`, `h_dinamico_nivel_n`
 - `tau_s_median`, `tau_s_mean`, `tau_s_std`, `tau_s_n`
-- `C_const_ls_median`, `C_const_ls_mean`, `C_const_ls_std`, `C_const_ls_n`
+- `C_const_m3s_median`, `C_const_m3s_mean`, `C_const_m3s_std`, `C_const_m3s_n`
 
-No se exportan columnas ambiguas como `h_static_nivel_m`, `h_dinamico_nivel_m`, `tau_s` o `C_const_ls`.
+No se exportan columnas ambiguas como `h_static_nivel_m`, `h_dinamico_nivel_m`, `tau_s` o `C_const_m3s`.
 
 ## 8) Script de prueba rápida por período
 ```bash

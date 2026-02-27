@@ -5,13 +5,23 @@ from pathlib import Path
 import pandas as pd
 
 
-REQUIRED_COLUMNS = {"ts", "caudal_ls"}
+REQUIRED_COLUMNS = {"ts"}
 
 
 def _validate_columns(df: pd.DataFrame, required: set[str]) -> None:
     missing = required.difference(df.columns)
     if missing:
         raise ValueError(f"Faltan columnas requeridas: {sorted(missing)}")
+
+
+def _resolve_flow_col(df: pd.DataFrame, preferred: str | None = None) -> str:
+    if preferred and preferred in df.columns:
+        return preferred
+    if "caudal_m3s" in df.columns:
+        return "caudal_m3s"
+    if "caudal_ls" in df.columns:
+        return "caudal_ls"
+    raise ValueError("No se encontró columna de caudal (caudal_m3s o caudal_ls)")
 
 
 def load_timeseries(path: str | Path, ts_col: str = "ts") -> pd.DataFrame:
@@ -25,10 +35,13 @@ def load_timeseries(path: str | Path, ts_col: str = "ts") -> pd.DataFrame:
     df = df.copy()
     df[ts_col] = pd.to_datetime(df[ts_col], errors="coerce")
     df = df.dropna(subset=[ts_col]).sort_values(ts_col).reset_index(drop=True)
+    if "caudal_m3s" not in df.columns and "caudal_ls" in df.columns:
+        df["caudal_m3s"] = pd.to_numeric(df["caudal_ls"], errors="coerce") / 1000.0
     return df
 
 
-def detect_on_intervals(df: pd.DataFrame, ts_col: str = "ts", flow_col: str = "caudal_ls", threshold: float = 0.0) -> pd.DataFrame:
+def detect_on_intervals(df: pd.DataFrame, ts_col: str = "ts", flow_col: str = "caudal_m3s", threshold: float = 0.0) -> pd.DataFrame:
+    flow_col = _resolve_flow_col(df, flow_col)
     _validate_columns(df, {ts_col, flow_col})
     dfx = df.copy()
     dfx[ts_col] = pd.to_datetime(dfx[ts_col], errors="coerce")
@@ -48,7 +61,8 @@ def detect_on_intervals(df: pd.DataFrame, ts_col: str = "ts", flow_col: str = "c
     return pd.DataFrame({"inicio": starts.values, "fin": ends.values})
 
 
-def mean_flow_on_intervals(df: pd.DataFrame, intervals: pd.DataFrame, ts_col: str = "ts", flow_col: str = "caudal_ls") -> float:
+def mean_flow_on_intervals(df: pd.DataFrame, intervals: pd.DataFrame, ts_col: str = "ts", flow_col: str = "caudal_m3s") -> float:
+    flow_col = _resolve_flow_col(df, flow_col)
     _validate_columns(df, {ts_col, flow_col})
     if intervals.empty:
         return float("nan")
@@ -68,7 +82,8 @@ def mean_flow_on_intervals(df: pd.DataFrame, intervals: pd.DataFrame, ts_col: st
     return float(dfx.loc[mask, flow_col].mean())
 
 
-def on_ratio(df: pd.DataFrame, flow_col: str = "caudal_ls", threshold: float = 0.0) -> float:
+def on_ratio(df: pd.DataFrame, flow_col: str = "caudal_m3s", threshold: float = 0.0) -> float:
+    flow_col = _resolve_flow_col(df, flow_col)
     _validate_columns(df, {flow_col})
     total = len(df)
     if total == 0:

@@ -7,6 +7,8 @@ import pandas as pd
 
 from pozos.analysis.ajuste_fisico import fit_period_cycles
 
+LITERS_TO_M3 = 1.0 / 1000.0
+
 
 def robust_median_smooth(series: pd.Series, window: int) -> pd.Series:
     return series.rolling(window=window, center=True, min_periods=1).median()
@@ -69,36 +71,45 @@ def _mean_on_duration_seconds(part: pd.DataFrame, ts_col: str = "ts") -> float:
     return float(np.mean(durs)) if durs else np.nan
 
 
-def _prepare_df(df: pd.DataFrame, smooth_window: int, thr_ls: float) -> pd.DataFrame:
+def _prepare_df(df: pd.DataFrame, smooth_window: int, thr_m3s: float) -> pd.DataFrame:
     dfx = df.copy()
     dfx["ts"] = pd.to_datetime(dfx["ts"], errors="coerce")
-    dfx["caudal_ls"] = pd.to_numeric(dfx["caudal_ls"], errors="coerce")
     dfx["nivel_m"] = pd.to_numeric(dfx["nivel_m"], errors="coerce")
-    dfx = dfx.dropna(subset=["ts", "caudal_ls", "nivel_m"]).sort_values("ts").reset_index(drop=True)
+
+    if "caudal_m3s" in dfx.columns:
+        dfx["caudal_m3s"] = pd.to_numeric(dfx["caudal_m3s"], errors="coerce")
+    elif "caudal_ls" in dfx.columns:
+        dfx["caudal_ls"] = pd.to_numeric(dfx["caudal_ls"], errors="coerce")
+        dfx["caudal_m3s"] = dfx["caudal_ls"] * LITERS_TO_M3
+    else:
+        raise ValueError("Falta columna de caudal: se requiere caudal_ls o caudal_m3s")
+
+    dfx = dfx.dropna(subset=["ts", "caudal_m3s", "nivel_m"]).sort_values("ts").reset_index(drop=True)
     if dfx.empty:
         return dfx
+
     dfx["nivel_use"] = robust_median_smooth(dfx["nivel_m"], window=max(1, int(smooth_window)))
     if "estado_bomba" in dfx.columns:
         dfx["pump_on"] = pd.to_numeric(dfx["estado_bomba"], errors="coerce").fillna(0).astype(int).astype(bool)
     else:
-        dfx["pump_on"] = dfx["caudal_ls"] > float(thr_ls)
+        dfx["pump_on"] = dfx["caudal_m3s"] > float(thr_m3s)
     return dfx
 
 
 def compute_cycle_metrics(
     df: pd.DataFrame,
-    thr_ls: float = 0.05,
+    thr_m3s: float = 0.00005,
     smooth_window: int = 5,
 ) -> pd.DataFrame:
-    required = {"ts", "caudal_ls", "nivel_m"}
+    required = {"ts", "nivel_m"}
     if not required.issubset(df.columns):
-        raise ValueError(f"Faltan columnas. Requiere {required}")
+        raise ValueError(f"Faltan columnas. Requiere {required} + caudal_ls/caudal_m3s")
 
-    dfx = _prepare_df(df, smooth_window=smooth_window, thr_ls=thr_ls)
+    dfx = _prepare_df(df, smooth_window=smooth_window, thr_m3s=thr_m3s)
     if dfx.empty:
         return pd.DataFrame()
 
-    fit = fit_period_cycles(dfx, thr_ls=thr_ls, ts_col="ts", flow_col="caudal_ls", level_col="nivel_use")
+    fit = fit_period_cycles(dfx, thr_m3s=thr_m3s, ts_col="ts", flow_col="caudal_m3s", level_col="nivel_use")
     rows: list[dict[str, Any]] = []
     for cyc in fit.get("cycles", []):
         rows.append(
@@ -110,7 +121,7 @@ def compute_cycle_metrics(
                 "h_static": cyc["h_static"],
                 "hd_fit": cyc["hd_fit"],
                 "tau_fit": cyc["tau_fit"],
-                "C_const_ls": cyc["C_const_ls"],
+                "C_const_m3s": cyc["C_const_m3s"],
                 "k": cyc["k"],
                 "ok_k": cyc["ok_k"],
                 "rmse": cyc["rmse"],
@@ -125,18 +136,18 @@ def compute_cycle_metrics(
 
 def compute_period_metrics(
     df: pd.DataFrame,
-    thr_ls: float = 0.05,
+    thr_m3s: float = 0.00005,
     smooth_window: int = 5,
     days_per_period: float = 2.0,
 ) -> tuple[pd.DataFrame, pd.DataFrame | None]:
     if days_per_period <= 0:
         raise ValueError("days_per_period debe ser > 0")
 
-    required = {"ts", "caudal_ls", "nivel_m"}
+    required = {"ts", "nivel_m"}
     if not required.issubset(df.columns):
-        raise ValueError(f"Faltan columnas. Requiere {required}")
+        raise ValueError(f"Faltan columnas. Requiere {required} + caudal_ls/caudal_m3s")
 
-    dfx = _prepare_df(df, smooth_window=smooth_window, thr_ls=thr_ls)
+    dfx = _prepare_df(df, smooth_window=smooth_window, thr_m3s=thr_m3s)
     if dfx.empty:
         return pd.DataFrame(), None
 
@@ -150,11 +161,11 @@ def compute_period_metrics(
         part = part.copy().reset_index(drop=True)
         on_mask = part["pump_on"].astype(bool)
 
-        fit = fit_period_cycles(part, thr_ls=thr_ls, ts_col="ts", flow_col="caudal_ls", level_col="nivel_use")
+        fit = fit_period_cycles(part, thr_m3s=thr_m3s, ts_col="ts", flow_col="caudal_m3s", level_col="nivel_use")
 
         hs_values = part.loc[~on_mask, "nivel_use"].to_numpy(float)
         hd_values = part.loc[on_mask, "nivel_use"].to_numpy(float)
-        c_values = part.loc[on_mask, "caudal_ls"].to_numpy(float)
+        c_values = part.loc[on_mask, "caudal_m3s"].to_numpy(float)
         tau_values = np.asarray(fit.get("tau_values", []), dtype=float)
         k_values = np.asarray(fit.get("k_values", []), dtype=float)
         t_between_values = np.asarray(fit.get("tiempo_entre_encendidos_values", []), dtype=float)
@@ -177,31 +188,18 @@ def compute_period_metrics(
             "ok_fit_global": bool(fit["ok_fit_global"]),
             "rmse_global": float(fit["rmse_global"]) if np.isfinite(fit["rmse_global"]) else np.nan,
             "r2_global": float(fit["r2_global"]) if np.isfinite(fit["r2_global"]) else np.nan,
-            "umbral_q_usado_ls": float(thr_ls),
+            "umbral_q_usado_m3s": float(thr_m3s),
         }
 
         _add_stats_cols(row, "h_static_nivel", hs_values)
         _add_stats_cols(row, "h_dinamico_nivel", hd_values)
         _add_stats_cols(row, "tau_s", tau_values)
-        _add_stats_cols(row, "C_const_ls", c_values)
+        _add_stats_cols(row, "C_const_m3s", c_values)
         _add_stats_cols(row, "k", k_values)
         _add_stats_cols(row, "tiempo_entre_encendidos", t_between_values)
         rows.append(row)
 
     periods_df = pd.DataFrame(rows)
-
-    periods_df = periods_df.rename(
-        columns={
-            "h_static_nivel_m": "h_static_nivel_median",
-            "h_dinamico_nivel_m": "h_dinamico_nivel_median",
-            "tau_s": "tau_s_median",
-            "C_const_ls": "C_const_ls_median",
-        }
-    )
-    periods_df = periods_df.drop(
-        columns=["h_static_nivel_m", "h_dinamico_nivel_m", "tau_s", "C_const_ls"],
-        errors="ignore",
-    )
 
     desired_order = [
         "device_id",
@@ -226,10 +224,10 @@ def compute_period_metrics(
         "tau_s_mean",
         "tau_s_std",
         "tau_s_n",
-        "C_const_ls_median",
-        "C_const_ls_mean",
-        "C_const_ls_std",
-        "C_const_ls_n",
+        "C_const_m3s_median",
+        "C_const_m3s_mean",
+        "C_const_m3s_std",
+        "C_const_m3s_n",
         "k_median",
         "k_mean",
         "k_std",
@@ -238,7 +236,7 @@ def compute_period_metrics(
         "tiempo_entre_encendidos_mean",
         "tiempo_entre_encendidos_std",
         "tiempo_entre_encendidos_n",
-        "umbral_q_usado_ls",
+        "umbral_q_usado_m3s",
     ]
 
     cols = [c for c in desired_order if c in periods_df.columns] + [c for c in periods_df.columns if c not in desired_order]
@@ -250,7 +248,7 @@ def compute_period_metrics(
             "tiempo_on_prom_s",
             "rmse_global",
             "r2_global",
-            "umbral_q_usado_ls",
+            "umbral_q_usado_m3s",
         }:
             periods_df[col] = pd.to_numeric(periods_df[col], errors="coerce")
 
