@@ -8,6 +8,24 @@ import pandas as pd
 from pozos.analysis.metricas_por_periodo import compute_cycle_metrics, compute_period_metrics
 
 
+def _parse_well_and_id_from_filename(stem: str) -> tuple[str, str]:
+    txt = str(stem).strip()
+    if not txt:
+        return "", ""
+    if "_" not in txt:
+        return txt, txt
+    well_name, device_id = txt.rsplit("_", 1)
+    return well_name.strip(), device_id.strip()
+
+
+def _is_placeholder_series(sr: pd.Series, placeholder: str) -> bool:
+    vals = sr.astype(str).str.strip().str.lower()
+    vals = vals[vals != ""]
+    if vals.empty:
+        return True
+    return bool(vals.nunique() == 1 and vals.iloc[0] == placeholder.lower())
+
+
 def _process_one_file(
     csv_path: Path,
     thr_m3s: float,
@@ -15,10 +33,17 @@ def _process_one_file(
     days_per_period: float,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     df = pd.read_csv(csv_path)
+    parsed_name, parsed_id = _parse_well_and_id_from_filename(csv_path.stem)
+
     if "device_id" not in df.columns:
-        df["device_id"] = csv_path.stem
+        df["device_id"] = parsed_id or csv_path.stem
+    elif _is_placeholder_series(df["device_id"], "device_id"):
+        df["device_id"] = parsed_id or csv_path.stem
+
     if "nombre_pozo" not in df.columns:
-        df["nombre_pozo"] = df["device_id"]
+        df["nombre_pozo"] = parsed_name or str(df["device_id"].iloc[0])
+    elif _is_placeholder_series(df["nombre_pozo"], "nombre_pozo"):
+        df["nombre_pozo"] = parsed_name or str(df["device_id"].iloc[0])
 
     periods_df, _ = compute_period_metrics(
         df,

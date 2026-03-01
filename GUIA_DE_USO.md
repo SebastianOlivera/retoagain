@@ -21,6 +21,7 @@ Cada CSV debe incluir:
 Opcional:
 - `estado_bomba` (0/1). Si no viene, se infiere por `caudal_m3s > umbral_q`.
 - `nombre_pozo` (si existe, se exporta justo después de `device_id`).
+- Si faltan `device_id`/`nombre_pozo` (o vienen como placeholders), se infieren desde el nombre del archivo usando el formato `NOMBRE_POZO_DEVICE_ID.csv` (separando por el último `_`).
 
 ## 2) Ejecución por período (recomendado)
 
