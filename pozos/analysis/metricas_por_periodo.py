@@ -277,6 +277,37 @@ def compute_period_metrics(
 
     periods_df = pd.DataFrame(rows)
 
+    # Normalización defensiva de nombres legacy (segundos -> minutos)
+    legacy_rename = {
+        "tiempo_on_prom_s": "tiempo_on_prom_min",
+        "tau_s_median": "tau_min_median",
+        "tau_s_mean": "tau_min_mean",
+        "tau_s_std": "tau_min_std",
+        "tau_s_n": "tau_min_n",
+        "tiempo_entre_encendidos_median": "tiempo_entre_encendidos_min_median",
+        "tiempo_entre_encendidos_mean": "tiempo_entre_encendidos_min_mean",
+        "tiempo_entre_encendidos_std": "tiempo_entre_encendidos_min_std",
+        "tiempo_entre_encendidos_n": "tiempo_entre_encendidos_min_n",
+    }
+    for old, new in legacy_rename.items():
+        if old in periods_df.columns and new not in periods_df.columns:
+            periods_df = periods_df.rename(columns={old: new})
+
+    # Si se recibieron columnas legacy en segundos, convertir a minutos
+    legacy_seconds_cols = {
+        "tiempo_on_prom_s": "tiempo_on_prom_min",
+        "tau_s_median": "tau_min_median",
+        "tau_s_mean": "tau_min_mean",
+        "tau_s_std": "tau_min_std",
+        "tiempo_entre_encendidos_median": "tiempo_entre_encendidos_min_median",
+        "tiempo_entre_encendidos_mean": "tiempo_entre_encendidos_min_mean",
+        "tiempo_entre_encendidos_std": "tiempo_entre_encendidos_min_std",
+    }
+    for old, new in legacy_seconds_cols.items():
+        if old in rows[0] if rows else False:
+            if new in periods_df.columns:
+                periods_df[new] = pd.to_numeric(periods_df[new], errors="coerce") / 60.0
+
     desired_order = [
         "device_id",
         "nombre_pozo",
