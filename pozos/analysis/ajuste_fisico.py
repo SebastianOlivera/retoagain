@@ -51,7 +51,7 @@ def _estimate_h_static_for_cycle(
     ts_col: str,
     level_col: str,
     on_col: str = "pump_on",
-    off_window_s: float = 30 * 60,
+    off_window_min: float = 30.0,
     min_points: int = 3,
 ) -> float:
     off_seg = _off_segment_before(df, on_start, on_col=on_col)
@@ -69,7 +69,7 @@ def _estimate_h_static_for_cycle(
 
     ts = pd.to_datetime(off_df[ts_col], errors="coerce")
     vals = pd.to_numeric(off_df[level_col], errors="coerce")
-    mask = (t_end - ts).dt.total_seconds() <= float(off_window_s)
+    mask = (t_end - ts).dt.total_seconds() / 60.0 <= float(off_window_min)
     vals = vals[mask]
     vals = vals[np.isfinite(vals)]
 
@@ -83,7 +83,7 @@ def fit_tau_hd_by_segment(
     ts_col: str = "ts",
     level_col: str = "nivel_m",
     min_points: int = 10,
-    min_tspan_s: float = 60.0,
+    min_tspan_min: float = 1.0,
 ) -> dict[str, Any] | None:
     if len(seg_df) < min_points:
         return None
@@ -96,11 +96,11 @@ def fit_tau_hd_by_segment(
     if len(dfx) < min_points:
         return None
 
-    t = (dfx[ts_col] - dfx[ts_col].iloc[0]).dt.total_seconds().to_numpy(float)
+    t = (dfx[ts_col] - dfx[ts_col].iloc[0]).dt.total_seconds().to_numpy(float) / 60.0
     h = dfx[level_col].to_numpy(float)
 
     t_span = float(t[-1] - t[0]) if len(t) else 0.0
-    if t_span < min_tspan_s:
+    if t_span < min_tspan_min:
         return None
 
     h0 = float(h[0])
@@ -131,12 +131,12 @@ def fit_tau_hd_by_segment(
         r2 = _safe_r2(h, pred)
 
         return {
-            "tau": tau_fit,
+            "tau_min": tau_fit,
             "h_d": float(h_d_fit),
             "rmse": rmse,
             "r2": r2,
             "n_points": int(len(dfx)),
-            "t_span_s": t_span,
+            "t_span_min": t_span,
         }
     except Exception:  # noqa: BLE001
         return None
@@ -186,17 +186,17 @@ def fit_period_cycles(
     dfx = dfx.dropna(subset=[ts_col, flow_col, level_col]).sort_values(ts_col).reset_index(drop=True)
 
     empty = {
-        "tau_s_mean": np.nan,
-        "tau_s_std": np.nan,
-        "tau_s_n": 0,
+        "tau_min_mean": np.nan,
+        "tau_min_std": np.nan,
+        "tau_min_n": 0,
         "rmse_global": np.nan,
         "r2_global": np.nan,
         "ok_fit_global": False,
         "warning_convention_mismatch": False,
-        "tau_values": np.array([], dtype=float),
+        "tau_min_values": np.array([], dtype=float),
         "hd_values": np.array([], dtype=float),
         "k_values": np.array([], dtype=float),
-        "tiempo_entre_encendidos_values": np.array([], dtype=float),
+        "tiempo_entre_encendidos_min_values": np.array([], dtype=float),
         "fit_count": 0,
         "cycles": [],
     }
@@ -229,7 +229,7 @@ def fit_period_cycles(
 
         h_static = _estimate_h_static_for_cycle(dfx, s, ts_col=ts_col, level_col=level_col)
         hd_fit = float(fit["h_d"]) if fit is not None else np.nan
-        tau_fit = float(fit["tau"]) if fit is not None else np.nan
+        tau_fit = float(fit["tau_min"]) if fit is not None else np.nan
         rmse = float(fit["rmse"]) if fit is not None else np.nan
         r2 = float(fit["r2"]) if (fit is not None and np.isfinite(fit["r2"])) else np.nan
         ok_fit = bool(fit is not None and np.isfinite(r2) and r2 >= 0.7)
@@ -258,7 +258,7 @@ def fit_period_cycles(
         between_error = False
         if idx + 1 < len(on_segments):
             next_s, _ = on_segments[idx + 1]
-            delta = float((dfx.loc[next_s, ts_col] - t_end).total_seconds())
+            delta = float((dfx.loc[next_s, ts_col] - t_end).total_seconds()) / 60.0
             if delta < 0:
                 between_error = True
                 t_between = np.nan
@@ -273,7 +273,7 @@ def fit_period_cycles(
                 "fin_on": t_end,
                 "h_static": h_static,
                 "hd_fit": hd_fit,
-                "tau_fit": tau_fit,
+                "tau_fit_min": tau_fit,
                 "C_const_m3s": c_seg,
                 "k": k_val,
                 "ok_k": ok_k,
@@ -281,7 +281,7 @@ def fit_period_cycles(
                 "rmse": rmse,
                 "r2": r2,
                 "ok_fit": ok_fit,
-                "tiempo_entre_encendidos_s": t_between,
+                "tiempo_entre_encendidos_min": t_between,
                 "tiempo_entre_error": between_error,
             }
         )
@@ -301,17 +301,17 @@ def fit_period_cycles(
     ok_fit_global = bool(tau_n >= 1 and np.isfinite(r2_global) and r2_global >= 0.7)
 
     return {
-        "tau_s_mean": tau_mean,
-        "tau_s_std": tau_std,
-        "tau_s_n": tau_n,
+        "tau_min_mean": tau_mean,
+        "tau_min_std": tau_std,
+        "tau_min_n": tau_n,
         "rmse_global": rmse_global,
         "r2_global": r2_global,
         "ok_fit_global": ok_fit_global,
         "warning_convention_mismatch": bool(mismatch_any),
-        "tau_values": tau_valid,
+        "tau_min_values": tau_valid,
         "hd_values": np.asarray(hd_vals, dtype=float),
         "k_values": np.asarray(k_vals, dtype=float),
-        "tiempo_entre_encendidos_values": np.asarray(t_between_vals, dtype=float),
+        "tiempo_entre_encendidos_min_values": np.asarray(t_between_vals, dtype=float),
         "fit_count": tau_n,
         "cycles": cycles,
     }

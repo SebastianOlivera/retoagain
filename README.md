@@ -28,7 +28,7 @@ python ejecutar_metricas_periodicas.py --input_dir /ruta/carpeta_csv --out_csv s
 ```
 
 
-Incluye agregados adicionales por período: `k_median|mean|std|n` y `tiempo_entre_encendidos_median|mean|std|n`.
+Incluye agregados adicionales por período: `k_median|mean|std|n` y `tiempo_entre_encendidos_min_median|mean|std|n`.
 
 También podés pedir detalle por ciclo con `--out_cycles_csv`.
 

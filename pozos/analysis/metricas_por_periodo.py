@@ -51,7 +51,7 @@ def _resolve_well_name(df: pd.DataFrame) -> str:
     return ""
 
 
-def _mean_on_duration_seconds(part: pd.DataFrame, ts_col: str = "ts") -> float:
+def _mean_on_duration_minutes(part: pd.DataFrame, ts_col: str = "ts") -> float:
     on = part["pump_on"].astype(bool).to_numpy()
     if len(on) == 0:
         return np.nan
@@ -77,7 +77,7 @@ def _mean_on_duration_seconds(part: pd.DataFrame, ts_col: str = "ts") -> float:
     for s_idx, e_idx in zip(starts, ends):
         t0 = part.iloc[s_idx][ts_col]
         t1 = part.iloc[e_idx][ts_col]
-        durs.append(float((t1 - t0).total_seconds()))
+        durs.append(float((t1 - t0).total_seconds()) / 60.0)
     return float(np.mean(durs)) if durs else np.nan
 
 
@@ -183,14 +183,14 @@ def compute_cycle_metrics(
                 "fin_on": cyc["fin_on"],
                 "h_static": cyc["h_static"],
                 "hd_fit": cyc["hd_fit"],
-                "tau_fit": cyc["tau_fit"],
+                "tau_fit_min": cyc["tau_fit_min"],
                 "C_const_m3s": cyc["C_const_m3s"],
                 "k": cyc["k"],
                 "ok_k": cyc["ok_k"],
                 "rmse": cyc["rmse"],
                 "r2": cyc["r2"],
                 "ok_fit": cyc["ok_fit"],
-                "tiempo_entre_encendidos_s": cyc["tiempo_entre_encendidos_s"],
+                "tiempo_entre_encendidos_min": cyc["tiempo_entre_encendidos_min"],
                 "tiempo_entre_error": cyc["tiempo_entre_error"],
             }
         )
@@ -216,8 +216,8 @@ def compute_period_metrics(
         return pd.DataFrame(), None
 
     start_ts = dfx["ts"].min()
-    period_s = float(days_per_period) * 86400.0
-    dfx["periodo"] = (((dfx["ts"] - start_ts).dt.total_seconds()) // period_s).astype(int) + 1
+    period_min = float(days_per_period) * 1440.0
+    dfx["periodo"] = (((dfx["ts"] - start_ts).dt.total_seconds() / 60.0) // period_min).astype(int) + 1
 
     rows: list[dict[str, Any]] = []
 
@@ -237,16 +237,16 @@ def compute_period_metrics(
         hs_values = part.loc[~on_mask, "nivel_use"].to_numpy(float)
         hd_values = part.loc[on_mask, "nivel_use"].to_numpy(float)
         c_values = part.loc[on_mask, "caudal_m3s"].to_numpy(float)
-        tau_values = np.asarray(fit.get("tau_values", []), dtype=float)
+        tau_values = np.asarray(fit.get("tau_min_values", []), dtype=float)
         k_values = np.asarray(fit.get("k_values", []), dtype=float)
-        t_between_values = np.asarray(fit.get("tiempo_entre_encendidos_values", []), dtype=float)
+        t_between_values = np.asarray(fit.get("tiempo_entre_encendidos_min_values", []), dtype=float)
 
         inicio = part["ts"].iloc[0]
         fin = part["ts"].iloc[-1]
         dur_days = max((fin - inicio).total_seconds() / 86400.0, days_per_period)
         n_on = _count_on_segments(part["pump_on"])
         freq_day = float(n_on / dur_days) if dur_days > 0 else 0.0
-        t_on_prom_s = _mean_on_duration_seconds(part, ts_col="ts")
+        t_on_prom_min = _mean_on_duration_minutes(part, ts_col="ts")
 
         row: dict[str, Any] = {
             "device_id": str(part["device_id"].iloc[0]) if "device_id" in part.columns else "",
@@ -256,7 +256,7 @@ def compute_period_metrics(
             "fin": fin,
             "n_on": n_on,
             "frecuencia_encendido_por_dia": freq_day,
-            "tiempo_on_prom_s": t_on_prom_s,
+            "tiempo_on_prom_min": t_on_prom_min,
             "ok_fit_global": bool(fit["ok_fit_global"]),
             "rmse_global": float(fit["rmse_global"]) if np.isfinite(fit["rmse_global"]) else np.nan,
             "r2_global": float(fit["r2_global"]) if np.isfinite(fit["r2_global"]) else np.nan,
@@ -269,10 +269,10 @@ def compute_period_metrics(
 
         _add_stats_cols(row, "h_static_nivel", hs_values)
         _add_stats_cols(row, "h_dinamico_nivel", hd_values)
-        _add_stats_cols(row, "tau_s", tau_values)
+        _add_stats_cols(row, "tau_min", tau_values)
         _add_stats_cols(row, "C_const_m3s", c_values)
         _add_stats_cols(row, "k", k_values)
-        _add_stats_cols(row, "tiempo_entre_encendidos", t_between_values)
+        _add_stats_cols(row, "tiempo_entre_encendidos_min", t_between_values)
         rows.append(row)
 
     periods_df = pd.DataFrame(rows)
@@ -285,7 +285,7 @@ def compute_period_metrics(
         "fin",
         "n_on",
         "frecuencia_encendido_por_dia",
-        "tiempo_on_prom_s",
+        "tiempo_on_prom_min",
         "ok_fit_global",
         "rmse_global",
         "r2_global",
@@ -301,10 +301,10 @@ def compute_period_metrics(
         "h_dinamico_nivel_mean",
         "h_dinamico_nivel_std",
         "h_dinamico_nivel_n",
-        "tau_s_median",
-        "tau_s_mean",
-        "tau_s_std",
-        "tau_s_n",
+        "tau_min_median",
+        "tau_min_mean",
+        "tau_min_std",
+        "tau_min_n",
         "C_const_m3s_median",
         "C_const_m3s_mean",
         "C_const_m3s_std",
@@ -313,10 +313,10 @@ def compute_period_metrics(
         "k_mean",
         "k_std",
         "k_n",
-        "tiempo_entre_encendidos_median",
-        "tiempo_entre_encendidos_mean",
-        "tiempo_entre_encendidos_std",
-        "tiempo_entre_encendidos_n",
+        "tiempo_entre_encendidos_min_median",
+        "tiempo_entre_encendidos_min_mean",
+        "tiempo_entre_encendidos_min_std",
+        "tiempo_entre_encendidos_min_n",
         "umbral_q_usado_m3s",
     ]
 
@@ -326,7 +326,7 @@ def compute_period_metrics(
     for col in periods_df.columns:
         if col.endswith("_median") or col.endswith("_mean") or col.endswith("_std") or col.endswith("_n") or col in {
             "frecuencia_encendido_por_dia",
-            "tiempo_on_prom_s",
+            "tiempo_on_prom_min",
             "rmse_global",
             "r2_global",
             "umbral_q_usado_m3s",
